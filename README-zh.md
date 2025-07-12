@@ -2,28 +2,28 @@
 
 [![English](https://img.shields.io/badge/README-English-blue.svg)](README.md) [![繁體中文](https://img.shields.io/badge/README-繁體中文-red.svg)](README-zh.md)
 
-A lightweight Go AI agent framework for building intelligent conversations and automated workflows with efficiency.
+一個輕量級的 Go AI 代理框架，用於建立智能對話和自動化工作流程，具有高效率。
 
-## Features
+## 特色功能
 
-- 🚀 **Lightweight & Fast**: Minimal abstractions focused on core functionality
-- ⚡ **Functional Options**: Clean, intuitive APIs using Go's functional options pattern
-- 🔌 **Pluggable Architecture**: Support for multiple LLM providers and storage backends
-- 🛠️ **Tool Integration**: Easy integration of custom tools and function calling
-- 🔄 **Flow Control**: Dynamic conversation flow with conditional rules
-- 📝 **Structured Output**: Built-in support for validated JSON output
-- 💾 **Session Management**: Persistent conversation history for backend scenarios
-- 🧪 **Testing Support**: Comprehensive mocking and testing utilities
+- 🚀 **輕量級與高效**: 專注於核心功能的最小化抽象
+- ⚡ **函數式選項**: 使用 Go 的函數式選項模式提供清潔、直觀的 API
+- 🔌 **可插拔架構**: 支援多種 LLM 提供商和儲存後端
+- 🛠️ **工具整合**: 輕鬆整合自定義工具和函數呼叫
+- 🔄 **流程控制**: 帶有條件規則的動態對話流程
+- 📝 **結構化輸出**: 內建支援驗證的 JSON 輸出
+- 💾 **會話管理**: 後端場景的持久對話歷史記錄
+- 🧪 **測試支援**: 全面的模擬和測試工具
 
-## Quick Start
+## 快速開始
 
-### Installation
+### 安裝
 
 ```bash
 go get github.com/davidleitw/go-agent
 ```
 
-### Basic Usage
+### 基本使用
 
 ```go
 package main
@@ -70,7 +70,7 @@ func floatPtr(f float64) *float64 { return &f }
 func intPtr(i int) *int { return &i }
 ```
 
-### With Tools
+### 搭配工具使用
 
 ```go
 // Define a custom tool
@@ -118,7 +118,7 @@ weatherAgent, err := agent.New(
 )
 ```
 
-### Structured Output
+### 結構化輸出
 
 ```go
 // Define output structure
@@ -145,7 +145,7 @@ if taskResult, ok := structuredOutput.(*TaskResult); ok {
 }
 ```
 
-### Flow Rules
+### 流程規則
 
 ```go
 // Create conditional flow rules
@@ -169,60 +169,60 @@ smartAgent, err := agent.New(
 )
 ```
 
-## Architecture
+## 架構
 
-The framework is designed with clean separation of concerns:
+該框架採用清晰的關注點分離設計：
 
-- **`pkg/agent/`**: Core interfaces and public APIs
-- **`internal/base/`**: Default implementations
-- **`internal/llm/`**: LLM provider implementations
-- **`internal/storage/`**: Session storage implementations
+- **`pkg/agent/`**: 核心介面和公共 API
+- **`internal/base/`**: 預設實作
+- **`internal/llm/`**: LLM 提供商實作
+- **`internal/storage/`**: 會話儲存實作
 
-### Core Components
+### 核心組件
 
-1. **Agent**: Complete AI agent with configuration and execution capabilities
-2. **Session**: Conversation history and state management for backend scenarios
-3. **Tools**: External capabilities that agents can use
-4. **Flow Rules**: Dynamic behavior control based on conditions
-5. **Chat Models**: Abstraction for different LLM providers
-6. **Storage**: Pluggable session persistence backends
+1. **Agent**: 完整的 AI 代理，具有配置和執行功能
+2. **Session**: 對話歷史記錄和狀態管理（用於後端場景）
+3. **Tools**: 代理可以使用的外部功能
+4. **Flow Rules**: 基於條件的動態行為控制
+5. **Chat Models**: 不同 LLM 提供商的抽象化
+6. **Storage**: 可插拔的會話持久化後端
 
-## Supported LLM Providers
+## 支援的 LLM 提供商
 
 - ✅ **OpenAI** (GPT-4, GPT-3.5-turbo, etc.)
 - 🔜 **Anthropic** (Claude 3.5 Sonnet, etc.)
 - 🔜 **Google** (Gemini)
-- 🔜 **Local models** (via Ollama)
+- 🔜 **本地模型** (透過 Ollama)
 
-## Storage Backends
+## 儲存後端
 
-- ✅ **In-Memory**: For development and testing
-- ✅ **Filesystem**: Simple file-based persistence
-- 🔜 **Redis**: For production distributed systems
-- 🔜 **PostgreSQL**: For advanced querying and analytics
+- ✅ **記憶體**: 用於開發和測試
+- ✅ **檔案系統**: 簡單的檔案持久化
+- 🔜 **Redis**: 用於生產環境的分散式系統
+- 🔜 **PostgreSQL**: 用於進階查詢和分析
 
-## Examples
+## 範例
 
-See the [`cmd/examples/`](./cmd/examples/) directory for complete working examples:
+查看 [`cmd/examples/`](./cmd/examples/) 目錄獲得完整的工作範例：
 
-- **Basic Chat Agent**: Simple conversational AI
-- **Task Automation Agent**: Advanced features with tools and structured output
-- **Multi-Agent Workflow**: Coordinated multi-agent interactions
+- **基本聊天代理**: 簡單的對話式 AI
+- **任務自動化代理**: 具有工具和結構化輸出的進階功能
+- **多代理工作流程**: 協調的多代理互動
 
-## Development
+## 開發
 
-### Prerequisites
+### 前置需求
 
-- Go 1.21 or later
-- (Optional) golangci-lint for linting
+- Go 1.21 或更高版本
+- (可選) golangci-lint 用於代碼檢查
 
-### Building
+### 建置
 
 ```bash
 make build
 ```
 
-### Testing
+### 測試
 
 ```bash
 # Run all tests
@@ -235,45 +235,45 @@ make unit-test
 make coverage
 ```
 
-### Linting
+### 代碼檢查
 
 ```bash
 make lint
 ```
 
-## API Documentation
+## API 文件
 
-For detailed API documentation, see:
+詳細的 API 文件請參閱：
 
-- [Getting Started Guide](./docs/getting-started.md)
-- [API Reference](./docs/api-reference.md)
-- [Architecture Overview](./docs/architecture.md)
-- [Examples](./docs/examples.md)
+- [開始指南](./docs/getting-started.md)
+- [API 參考](./docs/api-reference.md)
+- [架構概述](./docs/architecture.md)
+- [範例](./docs/examples.md)
 
-## Contributing
+## 貢獻
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+1. Fork 這個儲存庫
+2. 創建您的功能分支 (`git checkout -b feature/amazing-feature`)
+3. 提交您的變更 (`git commit -m 'Add some amazing feature'`)
+4. 推送到分支 (`git push origin feature/amazing-feature`)
+5. 開啟一個 Pull Request
 
-## License
+## 許可證
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+本專案採用 MIT 許可證 - 詳情請參閱 [LICENSE](LICENSE) 檔案。
 
-## Roadmap
+## 路線圖
 
-- [ ] Additional LLM providers (Anthropic, Google, etc.)
-- [ ] Advanced storage backends (Redis, PostgreSQL)
-- [ ] Streaming response support
-- [ ] Multi-agent orchestration
-- [ ] Observability and metrics
-- [ ] Web UI for agent management
-- [ ] Plugin system for custom extensions
+- [ ] 額外的 LLM 提供商 (Anthropic, Google, etc.)
+- [ ] 進階儲存後端 (Redis, PostgreSQL)
+- [ ] 串流回應支援
+- [ ] 多代理協調
+- [ ] 可觀測性和指標
+- [ ] 代理管理的 Web UI
+- [ ] 自定義擴展的插件系統
 
-## Support
+## 支援
 
-- 📖 [Documentation](./docs/)
-- 🐛 [Issue Tracker](https://github.com/davidleitw/go-agent/issues)
-- 💬 [Discussions](https://github.com/davidleitw/go-agent/discussions)
+- 📖 [文件](./docs/)
+- 🐛 [問題追蹤](https://github.com/davidleitw/go-agent/issues)
+- 💬 [討論](https://github.com/davidleitw/go-agent/discussions) 
