@@ -82,6 +82,14 @@ func (u *UserStatusOutput) NewInstance() interface{} {
 	return &UserStatusOutput{}
 }
 
+func (u *UserStatusOutput) Validate(instance interface{}) error {
+	// Basic validation - ensure it's the right type
+	if _, ok := instance.(*UserStatusOutput); !ok {
+		return fmt.Errorf("instance is not a UserStatusOutput")
+	}
+	return nil
+}
+
 // CollectInfoTool simulates collecting user information
 type CollectInfoTool struct{}
 
@@ -502,7 +510,6 @@ Be friendly, encouraging, and clear about what information is needed and why.`),
 		agent.WithFlowRules(flowRules...),
 		agent.WithStructuredOutput(&UserStatusOutput{}),
 		agent.WithSessionStore(agent.NewInMemorySessionStore()),
-		agent.WithDebugLogging(true),
 	)
 	if err != nil {
 		log.Fatalf("❌ Failed to create onboarding agent: %v", err)

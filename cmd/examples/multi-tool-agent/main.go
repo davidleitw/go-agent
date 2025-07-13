@@ -436,8 +436,8 @@ Examples:
 		"Get the current time in Tokyo and set a notification to remind me about the meeting in 30 minutes",
 	}
 
-	sessionID := fmt.Sprintf("multi-tool-%d", time.Now().Unix())
-	log.Printf("🆔 Session ID: %s", sessionID)
+	baseSessionID := fmt.Sprintf("multi-tool-%d", time.Now().Unix())
+	log.Printf("🆔 Base Session ID: %s", baseSessionID)
 
 	ctx := context.Background()
 
@@ -450,7 +450,10 @@ Examples:
 		fmt.Printf("\n🔄 Test %d/%d\n", i+1, len(testScenarios))
 		fmt.Printf("👤 User: %s\n", scenario)
 
-		log.Printf("REQUEST[%d]: Processing user input", i+1)
+		// Use separate session for each test to avoid cross-contamination
+		sessionID := fmt.Sprintf("%s-test-%d", baseSessionID, i+1)
+
+		log.Printf("REQUEST[%d]: Processing user input (Session: %s)", i+1, sessionID)
 		start := time.Now()
 
 		response, _, err := assistant.Chat(ctx, sessionID, scenario)
