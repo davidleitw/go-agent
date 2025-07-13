@@ -233,21 +233,19 @@ Flow control enables dynamic agent behavior through conditions and rules. This i
 Common conditions for typical conversation scenarios:
 
 ```go
+import "github.com/davidleitw/go-agent/pkg/conditions"
+
 // Text-based conditions
-agent.Contains("help")        // User message contains "help"
-agent.StartsWith("hello")     // User message starts with "hello"  
-agent.Exactly("yes")          // User message is exactly "yes"
-agent.MatchesRegex("\\d+")    // User message matches regex pattern
+conditions.Contains("help")      // User message contains "help"
+conditions.Count(5)              // Conversation has 5+ messages
+conditions.Missing("email", "name") // Required fields are missing
+conditions.DataEquals("status", "urgent") // Data field has specific value
 
-// Conversation state conditions
-agent.MessageCount(5)         // Conversation has 5+ messages
-agent.TurnsSince(3)          // 3+ turns since last condition match
-agent.FirstMessage()         // This is the first message in session
-
-// Data conditions
-agent.MissingFields("email", "name")  // Required fields are missing
-agent.HasField("phone")               // Specific field is present
-agent.FieldEquals("status", "urgent") // Field has specific value
+// Custom function conditions
+conditions.Func("custom_check", func(session conditions.Session) bool {
+    // Custom logic here
+    return len(session.Messages()) > 3
+})
 ```
 
 #### Custom Conditions
@@ -281,16 +279,22 @@ businessRule := agent.FlowRule{
 
 ```go
 // Logical operators
-agent.And(agent.Contains("urgent"), agent.MissingFields("phone"))
-agent.Or(agent.Contains("help"), agent.Contains("support"))
-agent.Not(agent.HasField("email"))
+conditions.And(conditions.Contains("urgent"), conditions.Missing("phone"))
+conditions.Or(conditions.Contains("help"), conditions.Contains("support"))
+conditions.Not(conditions.Missing("email"))
 
 // Complex condition combinations
-complexCondition := agent.And(
-    agent.Or(agent.Contains("billing"), agent.Contains("payment")),
-    agent.MissingFields("account_id"),
-    agent.MessageCount(2),
+complexCondition := conditions.And(
+    conditions.Or(conditions.Contains("billing"), conditions.Contains("payment")),
+    conditions.Missing("account_id"),
+    conditions.Count(2),
 )
+
+// Fluent interface for building complex conditions
+complexCondition := conditions.Contains("support").
+    And(conditions.Missing("email")).
+    Or(conditions.Count(5)).
+    Build()
 ```
 
 **Complete examples**:
@@ -317,7 +321,7 @@ The framework consists of several main parts:
 
 **Tools**: Enable external operations through the `Tool` interface. Convert functions to tools using `agent.NewTool()`.
 
-**Conditions**: Flow control through the `Condition` interface. Built-in conditions available for common scenarios.
+**Conditions**: Flow control through the `conditions` package. Built-in conditions available for common scenarios including text matching, field validation, and message counting.
 
 **Schema**: Information collection through the `schema` package. Automatic extraction and validation of structured data.
 

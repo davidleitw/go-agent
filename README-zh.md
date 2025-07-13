@@ -233,21 +233,19 @@ func getTechnicalSupportWorkflow() [][]*schema.Field {
 常見對話情境的通用條件：
 
 ```go
+import "github.com/davidleitw/go-agent/pkg/conditions"
+
 // 文字型條件
-agent.Contains("help")        // 使用者訊息包含 "help"
-agent.StartsWith("hello")     // 使用者訊息以 "hello" 開始
-agent.Exactly("yes")          // 使用者訊息完全等於 "yes"
-agent.MatchesRegex("\\d+")    // 使用者訊息符合正規表達式
+conditions.Contains("help")       // 使用者訊息包含 "help"
+conditions.Count(5)               // 對話有 5+ 則訊息
+conditions.Missing("email", "name") // 必需欄位缺失
+conditions.DataEquals("status", "urgent") // 資料欄位具有特定值
 
-// 對話狀態條件
-agent.MessageCount(5)         // 對話有 5+ 則訊息
-agent.TurnsSince(3)          // 距離上次條件符合 3+ 輪
-agent.FirstMessage()         // 這是 session 中的第一則訊息
-
-// 資料條件
-agent.MissingFields("email", "name")  // 必需欄位缺失
-agent.HasField("phone")               // 特定欄位存在
-agent.FieldEquals("status", "urgent") // 欄位具有特定值
+// 自訂函數條件
+conditions.Func("custom_check", func(session conditions.Session) bool {
+    // 自訂邏輯
+    return len(session.Messages()) > 3
+})
 ```
 
 #### 自訂條件
@@ -281,16 +279,22 @@ businessRule := agent.FlowRule{
 
 ```go
 // 邏輯運算子
-agent.And(agent.Contains("urgent"), agent.MissingFields("phone"))
-agent.Or(agent.Contains("help"), agent.Contains("support"))
-agent.Not(agent.HasField("email"))
+conditions.And(conditions.Contains("urgent"), conditions.Missing("phone"))
+conditions.Or(conditions.Contains("help"), conditions.Contains("support"))
+conditions.Not(conditions.Missing("email"))
 
 // 複雜條件組合
-complexCondition := agent.And(
-    agent.Or(agent.Contains("billing"), agent.Contains("payment")),
-    agent.MissingFields("account_id"),
-    agent.MessageCount(2),
+complexCondition := conditions.And(
+    conditions.Or(conditions.Contains("billing"), conditions.Contains("payment")),
+    conditions.Missing("account_id"),
+    conditions.Count(2),
 )
+
+// 流暢介面建構複雜條件
+complexCondition := conditions.Contains("support").
+    And(conditions.Missing("email")).
+    Or(conditions.Count(5)).
+    Build()
 ```
 
 **完整範例**：
@@ -317,7 +321,7 @@ complexCondition := agent.And(
 
 **Tools**：透過 `Tool` 介面啟用外部操作。使用 `agent.NewTool()` 將函數轉換為工具。
 
-**Conditions**：透過 `Condition` 介面進行流程控制。提供常見情境的內建條件。
+**Conditions**：透過 `conditions` 套件進行流程控制。提供常見情境的內建條件，包括文字匹配、欄位驗證和訊息計數。
 
 **Schema**：透過 `schema` 套件進行資訊收集。自動提取和驗證結構化資料。
 
