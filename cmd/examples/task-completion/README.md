@@ -1,6 +1,6 @@
 # Task Completion Example
 
-[![English](https://img.shields.io/badge/README-English-blue.svg)](README.md) [![繁體中文](https://img.shields.io/badge/README-繁體中文-red.svg)](README-zh.md)
+[![English](https://img.shields.io/badge/README-English-blue.svg)](README.md) [![Chinese](https://img.shields.io/badge/README-Chinese-red.svg)](README-zh.md)
 
 This example demonstrates advanced condition validation and iterative information collection using structured output and LLM-driven completion detection.
 
@@ -67,9 +67,9 @@ The agent uses structured output to track progress and determine when all requir
 3. **Simulated User Flow**
    ```go
    userInputs := []string{
-       "我想要預訂餐廳，我是李先生",                    // Initial incomplete request
-       "我的電話是0912345678，想要明天晚上7點",        // Partial info
-       "4個人",                               // Final missing piece
+       "I want to make a restaurant reservation, I'm Mr. Lee",      // Initial incomplete request
+       "My phone is 0912345678, I want tomorrow evening at 7pm",   // Partial info
+       "4 people",                                                  // Final missing piece
    }
    ```
    - Gradually provides information across multiple turns
@@ -115,44 +115,44 @@ if structuredOutput != nil {
 
 ### Expected Flow Progression
 
-**Turn 1**: `"我想要預訂餐廳，我是李先生"`
+**Turn 1**: `"I want to make a restaurant reservation, I'm Mr. Lee"`
 ```json
 {
   "missing_fields": ["phone", "date", "time", "party_size"],
-  "collected_info": {"name": "李先生"},
+  "collected_info": {"name": "Mr. Lee"},
   "completion_flag": false,
-  "message": "我已經記錄您的姓名。還需要您的電話號碼、用餐日期、時間和人數。"
+  "message": "I've recorded your name. I still need your phone number, date, time, and party size."
 }
 ```
 
-**Turn 2**: `"我的電話是0912345678，想要明天晚上7點"`
+**Turn 2**: `"My phone is 0912345678, I want tomorrow evening at 7pm"`
 ```json
 {
   "missing_fields": ["party_size"],
   "collected_info": {
-    "name": "李先生",
+    "name": "Mr. Lee",
     "phone": "0912345678", 
-    "date": "明天",
-    "time": "晚上7點"
+    "date": "tomorrow",
+    "time": "evening at 7pm"
   },
   "completion_flag": false,
-  "message": "很好！最後請告訴我有幾個人用餐？"
+  "message": "Great! Finally, please tell me how many people will be dining?"
 }
 ```
 
-**Turn 3**: `"4個人"`
+**Turn 3**: `"4 people"`
 ```json
 {
   "missing_fields": [],
   "collected_info": {
-    "name": "李先生",
+    "name": "Mr. Lee",
     "phone": "0912345678",
-    "date": "明天", 
-    "time": "晚上7點",
-    "party_size": "4個人"
+    "date": "tomorrow", 
+    "time": "evening at 7pm",
+    "party_size": "4 people"
   },
   "completion_flag": true,
-  "message": "完美！預訂已完成。"
+  "message": "Perfect! Reservation completed."
 }
 ```
 
@@ -180,7 +180,7 @@ The example provides detailed logging at multiple levels:
 ============================================================
 
 🔄 Turn 1/3
-👤 User: 我想要預訂餐廳，我是李先生
+👤 User: I want to make a restaurant reservation, I'm Mr. Lee
 REQUEST[1]: Processing user input
 RESPONSE[1]: Duration: 2.1s
 STRUCTURED[1]: Parsed reservation status successfully
@@ -189,12 +189,12 @@ STRUCTURED[1]: Completion flag: false
 PROGRESS[1]: Still missing: phone, date, time, party_size
 
 🔄 Turn 2/3
-👤 User: 我的電話是0912345678，想要明天晚上7點
+👤 User: My phone is 0912345678, I want tomorrow evening at 7pm
 STRUCTURED[2]: Missing fields: [party_size]
 PROGRESS[2]: Still missing: party_size
 
 🔄 Turn 3/3
-👤 User: 4個人
+👤 User: 4 people
 COMPLETION[3]: Task completed successfully!
 🎉 Reservation completed successfully!
 ```

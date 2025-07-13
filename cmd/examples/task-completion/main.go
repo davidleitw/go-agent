@@ -86,9 +86,9 @@ When all information is collected, confirm the reservation details.`),
 
 	// Simulate a user interaction sequence
 	userInputs := []string{
-		"我想要預訂餐廳，我是李先生",                    // Initial incomplete request
-		"我的電話是0912345678，想要明天晚上7點",        // Partial info
-		"4個人",                               // Final missing piece
+		"I want to make a restaurant reservation, I'm Mr. Lee",      // Initial incomplete request
+		"My phone is 0912345678, I want tomorrow evening at 7pm",   // Partial info
+		"4 people",                                                  // Final missing piece
 	}
 
 	sessionID := fmt.Sprintf("reservation-%d", time.Now().Unix())

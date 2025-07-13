@@ -1,6 +1,6 @@
 # Calculator Tool Example
 
-[![English](https://img.shields.io/badge/README-English-blue.svg)](README.md) [![繁體中文](https://img.shields.io/badge/README-繁體中文-red.svg)](README-zh.md)
+[![English](https://img.shields.io/badge/README-English-blue.svg)](README.md) [![Chinese](https://img.shields.io/badge/README-Chinese-red.svg)](README-zh.md)
 
 This example demonstrates custom tool implementation and OpenAI function calling integration using a mathematical calculator tool.
 

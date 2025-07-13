@@ -1,6 +1,6 @@
 # Basic Chat Example
 
-[![English](https://img.shields.io/badge/README-English-blue.svg)](README.md) [![繁體中文](https://img.shields.io/badge/README-繁體中文-red.svg)](README-zh.md)
+[![English](https://img.shields.io/badge/README-English-blue.svg)](README.md) [![Chinese](https://img.shields.io/badge/README-Chinese-red.svg)](README-zh.md)
 
 This example demonstrates the fundamental usage of the go-agent framework by creating a simple conversational AI agent.
 

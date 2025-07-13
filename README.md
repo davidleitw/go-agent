@@ -4,7 +4,7 @@
   <img src="docs/images/gopher.png" alt="Go Agent" width="200" height="200">
 </div>
 
-[![English](https://img.shields.io/badge/README-English-blue.svg)](README.md) [![繁體中文](https://img.shields.io/badge/README-繁體中文-red.svg)](README-zh.md)
+[![English](https://img.shields.io/badge/README-English-blue.svg)](README.md) [![Chinese](https://img.shields.io/badge/README-Chinese-red.svg)](README-zh.md)
 
 A lightweight Go AI agent framework for building intelligent conversations and automated workflows with efficiency.
 
@@ -295,9 +295,9 @@ go run main.go
 - Detailed process logging
 
 **Simulated Flow**:
-1. User: "我想要預訂餐廳，我是李先生" → Missing: phone, date, time, party_size
-2. User: "我的電話是0912345678，想要明天晚上7點" → Missing: party_size
-3. User: "4個人" → All conditions met, completion_flag = true
+1. User: "I want to make a restaurant reservation, I'm Mr. Lee" → Missing: phone, date, time, party_size
+2. User: "My phone is 0912345678, I want tomorrow evening at 7pm" → Missing: party_size
+3. User: "4 people" → All conditions met, completion_flag = true
 
 ---
 
