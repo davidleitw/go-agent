@@ -33,19 +33,28 @@ Each example can be run directly from the project root:
 
 ```bash
 # Run basic chat example
-go run cmd/examples/basic-chat/main.go
+go run examples/basic-chat/main.go
 
-# Run calculator tool example
-go run cmd/examples/calculator-tool/main.go
+# Run calculator tool example  
+go run examples/calculator-tool/main.go
 
 # Run task completion example
-go run cmd/examples/task-completion/main.go
+go run examples/task-completion/main.go
 
 # Run multi-tool agent example
-go run cmd/examples/multi-tool-agent/main.go
+go run examples/multi-tool-agent/main.go
 
 # Run condition testing example
-go run cmd/examples/condition-testing/main.go
+go run examples/condition-testing/main.go
+
+# Run simple schema example
+go run examples/simple-schema/main.go
+
+# Run customer support example
+go run examples/customer-support/main.go
+
+# Run dynamic schema example
+go run examples/dynamic-schema/main.go
 ```
 
 ## 📚 Examples Overview
@@ -66,6 +75,8 @@ go run cmd/examples/condition-testing/main.go
 
 **Use Case**: Perfect starting point for understanding the framework fundamentals.
 
+**Detailed Documentation**: [README](basic-chat/README.md) | [繁體中文](basic-chat/README-zh.md)
+
 ---
 
 ### 2. Calculator Tool (`calculator-tool/`)
@@ -85,6 +96,8 @@ go run cmd/examples/condition-testing/main.go
 
 **Use Case**: Learn how to extend agent capabilities with custom tools.
 
+**Detailed Documentation**: [README](calculator-tool/README.md) | [繁體中文](calculator-tool/README-zh.md)
+
 ---
 
 ### 3. Task Completion (`task-completion/`)
@@ -103,6 +116,8 @@ go run cmd/examples/condition-testing/main.go
 - Output validation
 
 **Use Case**: Building agents that collect and structure user data systematically.
+
+**Detailed Documentation**: [README](task-completion/README.md) | [繁體中文](task-completion/README-zh.md)
 
 ---
 
@@ -124,6 +139,8 @@ go run cmd/examples/condition-testing/main.go
 
 **Use Case**: Building sophisticated agents that coordinate multiple capabilities intelligently.
 
+**Detailed Documentation**: [README](multi-tool-agent/README.md) | [繁體中文](multi-tool-agent/README-zh.md)
+
 ---
 
 ### 5. Condition Testing (`condition-testing/`)
@@ -143,6 +160,74 @@ go run cmd/examples/condition-testing/main.go
 - Conditional actions
 
 **Use Case**: Creating agents with complex, adaptive conversation flows.
+
+**Detailed Documentation**: [README](condition-testing/README.md) | [繁體中文](condition-testing/README-zh.md)
+
+---
+
+### 6. Simple Schema (`simple-schema/`)
+**Purpose**: Basic schema-based information collection
+
+**What it shows**:
+- Field definition with `schema.Define()`
+- Required vs optional fields
+- Automatic information extraction
+- Natural conversation flow
+- Session-based information persistence
+
+**Key APIs**:
+- `schema.Define()` - Field definition
+- `schema.Field.Optional()` - Optional field marking
+- `agent.WithSchema()` - Schema application
+- Schema collection metadata
+
+**Use Case**: Learn the fundamentals of intelligent information collection.
+
+**Detailed Documentation**: [README](simple-schema/README.md) | [繁體中文](simple-schema/README-zh.md)
+
+---
+
+### 7. Customer Support (`customer-support/`)
+**Purpose**: Real-world customer support bot with intelligent information collection
+
+**What it shows**:
+- Professional support workflows
+- Specialized schemas for different support types
+- Multi-turn conversation handling
+- Contextual information extraction
+- Support ticket information gathering
+
+**Key APIs**:
+- Dynamic schema selection
+- Support-specific field definitions
+- Multi-schema workflows
+- Professional prompt design
+
+**Use Case**: Building production-ready customer support systems.
+
+**Detailed Documentation**: [README](customer-support/README.md) | [繁體中文](customer-support/README-zh.md)
+
+---
+
+### 8. Dynamic Schema (`dynamic-schema/`)
+**Purpose**: Advanced schema selection and multi-step workflows
+
+**What it shows**:
+- Intent classification systems
+- Dynamic schema selection based on context
+- Multi-step information collection workflows
+- Complex conversation management
+- Real-time schema adaptation
+
+**Key APIs**:
+- Intent-based schema selection
+- Multi-step workflow orchestration
+- Advanced conversation analytics
+- Complex business logic integration
+
+**Use Case**: Building sophisticated conversation systems with adaptive data collection.
+
+**Detailed Documentation**: [README](dynamic-schema/README.md) | [繁體中文](dynamic-schema/README-zh.md)
 
 ## 🏗️ Architecture Patterns
 

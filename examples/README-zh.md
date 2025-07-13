@@ -33,19 +33,28 @@
 
 ```bash
 # 執行基本聊天範例
-go run cmd/examples/basic-chat/main.go
+go run examples/basic-chat/main.go
 
 # 執行計算器工具範例
-go run cmd/examples/calculator-tool/main.go
+go run examples/calculator-tool/main.go
 
 # 執行任務完成範例
-go run cmd/examples/task-completion/main.go
+go run examples/task-completion/main.go
 
 # 執行多工具代理範例
-go run cmd/examples/multi-tool-agent/main.go
+go run examples/multi-tool-agent/main.go
 
 # 執行條件測試範例
-go run cmd/examples/condition-testing/main.go
+go run examples/condition-testing/main.go
+
+# 執行簡單 Schema 範例
+go run examples/simple-schema/main.go
+
+# 執行客戶支持範例
+go run examples/customer-support/main.go
+
+# 執行動態 Schema 範例
+go run examples/dynamic-schema/main.go
 ```
 
 ## 📚 範例概覽
@@ -66,6 +75,8 @@ go run cmd/examples/condition-testing/main.go
 
 **使用案例**: 理解框架基礎的完美起點。
 
+**詳細文檔**: [README](basic-chat/README-zh.md) | [English](basic-chat/README.md)
+
 ---
 
 ### 2. 計算器工具 (`calculator-tool/`)
@@ -85,6 +96,8 @@ go run cmd/examples/condition-testing/main.go
 
 **使用案例**: 學習如何用自訂工具擴展代理功能。
 
+**詳細文檔**: [README](calculator-tool/README-zh.md) | [English](calculator-tool/README.md)
+
 ---
 
 ### 3. 任務完成 (`task-completion/`)
@@ -103,6 +116,8 @@ go run cmd/examples/condition-testing/main.go
 - 輸出驗證
 
 **使用案例**: 建立系統性收集和結構化用戶資料的代理。
+
+**詳細文檔**: [README](task-completion/README-zh.md) | [English](task-completion/README.md)
 
 ---
 
@@ -124,6 +139,8 @@ go run cmd/examples/condition-testing/main.go
 
 **使用案例**: 建立智能協調多種功能的複雜代理。
 
+**詳細文檔**: [README](multi-tool-agent/README-zh.md) | [English](multi-tool-agent/README.md)
+
 ---
 
 ### 5. 條件測試 (`condition-testing/`)
@@ -143,6 +160,74 @@ go run cmd/examples/condition-testing/main.go
 - 條件動作
 
 **使用案例**: 建立具有複雜、適應性對話流程的代理。
+
+**詳細文檔**: [README](condition-testing/README-zh.md) | [English](condition-testing/README.md)
+
+---
+
+### 6. 簡單 Schema (`simple-schema/`)
+**目的**: 基於 schema 的基本信息收集
+
+**展示內容**:
+- 使用 `schema.Define()` 定義字段
+- 必需與可選字段
+- 自動信息提取
+- 自然對話流程
+- 基於會話的信息持久化
+
+**核心 API**:
+- `schema.Define()` - 字段定義
+- `schema.Field.Optional()` - 可選字段標記
+- `agent.WithSchema()` - Schema 應用
+- Schema 收集元數據
+
+**使用案例**: 學習智能信息收集的基本概念。
+
+**詳細文檔**: [README](simple-schema/README-zh.md) | [English](simple-schema/README.md)
+
+---
+
+### 7. 客戶支持 (`customer-support/`)
+**目的**: 具有智能信息收集的真實客戶支持機器人
+
+**展示內容**:
+- 專業支持工作流程
+- 不同支持類型的專業 schema
+- 多輪對話處理
+- 上下文信息提取
+- 支持工單信息收集
+
+**核心 API**:
+- 動態 schema 選擇
+- 支持專用字段定義
+- 多 schema 工作流程
+- 專業提示設計
+
+**使用案例**: 建立生產就緒的客戶支持系統。
+
+**詳細文檔**: [README](customer-support/README-zh.md) | [English](customer-support/README.md)
+
+---
+
+### 8. 動態 Schema (`dynamic-schema/`)
+**目的**: 高級 schema 選擇和多步驟工作流程
+
+**展示內容**:
+- 意圖分類系統
+- 基於上下文的動態 schema 選擇
+- 多步驟信息收集工作流程
+- 複雜對話管理
+- 實時 schema 適應
+
+**核心 API**:
+- 基於意圖的 schema 選擇
+- 多步驟工作流程編排
+- 高級對話分析
+- 複雜業務邏輯集成
+
+**使用案例**: 建立具有適應性數據收集的複雜對話系統。
+
+**詳細文檔**: [README](dynamic-schema/README-zh.md) | [English](dynamic-schema/README.md)
 
 ## 🏗️ 架構模式
 
