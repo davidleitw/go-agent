@@ -502,6 +502,7 @@ Be friendly, encouraging, and clear about what information is needed and why.`),
 		agent.WithFlowRules(flowRules...),
 		agent.WithStructuredOutput(&UserStatusOutput{}),
 		agent.WithSessionStore(agent.NewInMemorySessionStore()),
+		agent.WithDebugLogging(true),
 	)
 	if err != nil {
 		log.Fatalf("❌ Failed to create onboarding agent: %v", err)

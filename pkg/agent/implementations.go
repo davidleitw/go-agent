@@ -126,10 +126,74 @@ func (a *simpleAgent) ChatWithSession(ctx context.Context, session Session, user
 		tools = append(tools, opts.additionalTools...)
 	}
 
-	// Apply flow rules
-	for range a.flowRules {
-		// This is where we would evaluate flow rules and modify behavior
-		// For now, we'll skip this complex logic
+	// Apply flow rules based on session data and structured output
+	var flowData map[string]interface{}
+	
+	// Try to extract data from the last message if it contains structured output
+	if len(messages) > 0 {
+		lastMessage := messages[len(messages)-1]
+		if lastMessage.Content != "" && a.outputType != nil {
+			// Try to parse JSON from last message content
+			var parsedData map[string]interface{}
+			if err := json.Unmarshal([]byte(lastMessage.Content), &parsedData); err == nil {
+				flowData = parsedData
+			}
+		}
+	}
+	
+	// If no structured data, create empty map
+	if flowData == nil {
+		flowData = make(map[string]interface{})
+	}
+
+	// Evaluate each flow rule
+	for _, rule := range a.flowRules {
+		shouldTrigger, err := rule.Condition.Evaluate(ctx, session, flowData)
+		if err != nil {
+			if a.debugLogging {
+				fmt.Printf("Warning: flow rule '%s' evaluation failed: %v\n", rule.Name, err)
+			}
+			continue
+		}
+
+		if shouldTrigger {
+			// Apply the flow rule
+			if rule.Action.NewInstructionsTemplate != "" {
+				// For simplicity, we'll just add the new instructions to the system prompt
+				// In a more sophisticated implementation, we might replace the instructions
+				systemMsg := NewSystemMessage(rule.Action.NewInstructionsTemplate)
+				messages = append([]Message{systemMsg}, messages...)
+			}
+
+			// Prioritize recommended tools
+			if len(rule.Action.RecommendedToolNames) > 0 {
+				var recommendedTools []Tool
+				var otherTools []Tool
+				
+				for _, tool := range tools {
+					isRecommended := false
+					for _, recName := range rule.Action.RecommendedToolNames {
+						if tool.Name() == recName {
+							isRecommended = true
+							break
+						}
+					}
+					
+					if isRecommended {
+						recommendedTools = append(recommendedTools, tool)
+					} else {
+						otherTools = append(otherTools, tool)
+					}
+				}
+				
+				// Put recommended tools first
+				tools = append(recommendedTools, otherTools...)
+			}
+
+			if a.debugLogging {
+				fmt.Printf("Flow rule '%s' triggered: %s\n", rule.Name, rule.Description)
+			}
+		}
 	}
 
 	// Call chat model
@@ -140,6 +204,89 @@ func (a *simpleAgent) ChatWithSession(ctx context.Context, session Session, user
 
 	// Add response to session
 	session.AddMessage(*response)
+
+	// Handle tool calls if present
+	if len(response.ToolCalls) > 0 {
+		// Execute each tool call
+		for _, toolCall := range response.ToolCalls {
+			// Find the matching tool
+			var matchingTool Tool
+			for _, tool := range tools {
+				if tool.Name() == toolCall.Function.Name {
+					matchingTool = tool
+					break
+				}
+			}
+
+			if matchingTool == nil {
+				// Tool not found, add error message
+				errorMsg := NewToolMessage(
+					toolCall.ID,
+					toolCall.Function.Name,
+					fmt.Sprintf("Error: tool '%s' not found", toolCall.Function.Name),
+				)
+				session.AddMessage(errorMsg)
+				continue
+			}
+
+			// Parse tool arguments
+			var args map[string]interface{}
+			if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
+				errorMsg := NewToolMessage(
+					toolCall.ID,
+					toolCall.Function.Name,
+					fmt.Sprintf("Error: invalid arguments - %v", err),
+				)
+				session.AddMessage(errorMsg)
+				continue
+			}
+
+			// Execute the tool
+			result, err := matchingTool.Execute(ctx, args)
+			if err != nil {
+				errorMsg := NewToolMessage(
+					toolCall.ID,
+					toolCall.Function.Name,
+					fmt.Sprintf("Error: %v", err),
+				)
+				session.AddMessage(errorMsg)
+				continue
+			}
+
+			// Convert result to JSON string
+			resultJSON, err := json.Marshal(result)
+			if err != nil {
+				errorMsg := NewToolMessage(
+					toolCall.ID,
+					toolCall.Function.Name,
+					fmt.Sprintf("Error: failed to serialize result - %v", err),
+				)
+				session.AddMessage(errorMsg)
+				continue
+			}
+
+			// Add successful tool result
+			toolMsg := NewToolMessage(
+				toolCall.ID,
+				toolCall.Function.Name,
+				string(resultJSON),
+			)
+			session.AddMessage(toolMsg)
+		}
+
+		// Get updated messages for next API call
+		messages = session.Messages()
+
+		// Call chat model again with tool results
+		finalResponse, err := a.chatModel.GenerateChatCompletion(ctx, messages, a.model, modelSettings, tools)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to generate final chat completion: %w", err)
+		}
+
+		// Add final response to session
+		session.AddMessage(*finalResponse)
+		response = finalResponse
+	}
 
 	// Save session
 	if err := a.sessionStore.Save(ctx, session); err != nil {
