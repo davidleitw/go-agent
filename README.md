@@ -113,6 +113,75 @@ if taskResult, ok := response.Data.(*TaskResult); ok {
 
 The framework automatically generates JSON Schema, validates AI output, and parses it into your Go struct. No more manual JSON parsing errors.
 
+## Smart Information Collection
+
+One of the most tedious aspects of building conversational AI is collecting structured information from users. Traditional approaches require complex state management and explicit prompting. go-agent solves this with intelligent schema-based collection:
+
+```go
+import "github.com/davidleitw/go-agent/pkg/schema"
+
+// Define what information you need
+supportBot, err := agent.New("support-agent").
+    WithOpenAI(apiKey).
+    WithInstructions("You are a professional customer support assistant.").
+    Build()
+
+// The agent automatically collects missing information
+response, err := supportBot.Chat(ctx, "I have a problem",
+    agent.WithSchema(
+        schema.Define("email", "Please provide your email address"),
+        schema.Define("issue", "Please describe your issue in detail"), 
+        schema.Define("urgency", "How urgent is this? (low/medium/high)").Optional(),
+    ),
+)
+```
+
+The framework intelligently:
+- **Extracts** information from user messages using LLM semantic understanding
+- **Identifies** missing required fields automatically  
+- **Asks** for missing information using natural, contextual prompts
+- **Remembers** collected information across conversation turns
+- **Adapts** to different conversation styles and user input patterns
+
+### Advanced Schema Usage
+
+**Dynamic Schema Selection:**
+```go
+// Adapt schema based on user intent
+intent := classifyUserIntent(userInput)
+schema := getSchemaForIntent(intent) // Different fields for different scenarios
+
+response, err := agent.Chat(ctx, userInput, agent.WithSchema(schema...))
+```
+
+**Multi-step Workflows:**
+```go
+// Complex information collection across multiple steps
+workflow := getWorkflowForIntent(intent) // Multiple schema steps
+for _, stepSchema := range workflow {
+    response, err := agent.Chat(ctx, userInput, agent.WithSchema(stepSchema...))
+    // Process each step...
+}
+```
+
+**Real-world Example - Customer Support:**
+```go
+// Automatically collects: email, issue type, description, order ID (optional)
+supportSchema := []*schema.Field{
+    schema.Define("email", "Please provide your email for follow-up"),
+    schema.Define("issue_category", "What type of issue? (technical/billing/account)"),
+    schema.Define("description", "Please describe the issue in detail"),
+    schema.Define("order_id", "Order number if applicable").Optional(),
+}
+
+// Agent handles the entire collection flow automatically
+response, err := supportBot.Chat(ctx, "I'm having trouble with my order",
+    agent.WithSchema(supportSchema...),
+)
+```
+
+The schema system seamlessly integrates with existing flow control and structured output features, creating a complete solution for intelligent conversation management.
+
 ## Intelligent Flow Control
 
 This is one of go-agent's most powerful features. You can make agents automatically adjust their behavior based on conversation state. For example, when user information is incomplete, automatically guide them to complete it:
@@ -168,6 +237,8 @@ The framework consists of several main parts:
 
 **Conditions**: The core of intelligent flow control. Define complex conversation logic with natural language style APIs.
 
+**Schema**: Intelligent information collection system. Define what data you need and let the framework automatically extract and collect it through natural conversation.
+
 **Chat Models**: Abstraction for different LLM providers. Currently supports OpenAI, with more coming soon.
 
 ## Supported LLM Providers
@@ -211,7 +282,13 @@ cp .env.example .env
 
 **Task Completion (task-completion)**: Shows structured output and condition validation, simulating a restaurant reservation system.
 
-Each example has detailed README instructions on how to run and key learning points. We recommend starting with basic-chat, then trying advanced-conditions.
+**Simple Schema (simple-schema)**: Demonstrates basic schema-based information collection, showing how to define required and optional fields for automatic data gathering.
+
+**Customer Support (customer-support)**: Real-world example showing how to build a professional customer support bot with intelligent information collection across different support scenarios.
+
+**Dynamic Schema (dynamic-schema)**: Advanced example demonstrating dynamic schema selection based on user intent, multi-step workflows, and complex conversation management.
+
+Each example has detailed README instructions on how to run and key learning points. We recommend starting with basic-chat, then trying simple-schema to understand information collection, followed by advanced-conditions for flow control.
 
 ## Common Issues
 
