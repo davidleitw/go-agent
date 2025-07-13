@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -260,19 +259,25 @@ func contains(slice []string, item string) bool {
 
 // MissingFieldsCondition checks if specific fields are missing
 type MissingFieldsCondition struct {
-	name   string
-	fields []string
+	name        string
+	fields      []string
+	description string
 }
 
 func NewMissingFieldsCondition(name string, fields []string) agent.Condition {
 	return &MissingFieldsCondition{
-		name:   name,
-		fields: fields,
+		name:        name,
+		fields:      fields,
+		description: fmt.Sprintf("Checks if any of the fields %v are missing", fields),
 	}
 }
 
 func (c *MissingFieldsCondition) Name() string {
 	return c.name
+}
+
+func (c *MissingFieldsCondition) Description() string {
+	return c.description
 }
 
 func (c *MissingFieldsCondition) Evaluate(ctx context.Context, session agent.Session, data map[string]interface{}) (bool, error) {
@@ -287,8 +292,8 @@ func (c *MissingFieldsCondition) Evaluate(ctx context.Context, session agent.Ses
 	}
 
 	// Convert to string slice
-	missing := make([]string, len(missingList))
-	for i, v := range missingList {
+	missing := make([]string, 0, len(missingList))
+	for _, v := range missingList {
 		if s, ok := v.(string); ok {
 			missing = append(missing, s)
 		}
@@ -310,19 +315,25 @@ func (c *MissingFieldsCondition) Evaluate(ctx context.Context, session agent.Ses
 
 // CompletionStageCondition checks the current completion stage
 type CompletionStageCondition struct {
-	name  string
-	stage string
+	name        string
+	stage       string
+	description string
 }
 
 func NewCompletionStageCondition(name string, stage string) agent.Condition {
 	return &CompletionStageCondition{
-		name:  name,
-		stage: stage,
+		name:        name,
+		stage:       stage,
+		description: fmt.Sprintf("Checks if the current completion stage is '%s'", stage),
 	}
 }
 
 func (c *CompletionStageCondition) Name() string {
 	return c.name
+}
+
+func (c *CompletionStageCondition) Description() string {
+	return c.description
 }
 
 func (c *CompletionStageCondition) Evaluate(ctx context.Context, session agent.Session, data map[string]interface{}) (bool, error) {
@@ -343,19 +354,25 @@ func (c *CompletionStageCondition) Evaluate(ctx context.Context, session agent.S
 
 // MessageCountCondition checks the number of messages in session
 type MessageCountCondition struct {
-	name     string
-	minCount int
+	name        string
+	minCount    int
+	description string
 }
 
 func NewMessageCountCondition(name string, minCount int) agent.Condition {
 	return &MessageCountCondition{
-		name:     name,
-		minCount: minCount,
+		name:        name,
+		minCount:    minCount,
+		description: fmt.Sprintf("Checks if the message count is at least %d", minCount),
 	}
 }
 
 func (c *MessageCountCondition) Name() string {
 	return c.name
+}
+
+func (c *MessageCountCondition) Description() string {
+	return c.description
 }
 
 func (c *MessageCountCondition) Evaluate(ctx context.Context, session agent.Session, data map[string]interface{}) (bool, error) {
@@ -397,7 +414,6 @@ func main() {
 	missingContactCondition := NewMissingFieldsCondition("missing_contact_info", []string{"email", "phone"})
 	missingPrefsCondition := NewMissingFieldsCondition("missing_preferences", []string{"preferences"})
 	basicInfoStageCondition := NewCompletionStageCondition("at_basic_info_stage", "basic_info")
-	contactStageCondition := NewCompletionStageCondition("at_contact_stage", "contact_details")
 	longConversationCondition := NewMessageCountCondition("long_conversation", 6)
 
 	// Create flow rules
