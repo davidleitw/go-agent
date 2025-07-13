@@ -3,12 +3,10 @@ package agent
 import (
 	"context"
 	"fmt"
-	"os"
-	time "time"
+	"time"
 )
 
 // Agent represents an AI agent that can have conversations and execute tools.
-// It combines configuration and execution capabilities in a single interface.
 type Agent interface {
 	// Configuration methods
 	Name() string
@@ -18,11 +16,11 @@ type Agent interface {
 	ModelSettings() *ModelSettings
 	Tools() []Tool
 	OutputType() OutputType
-	
+
 	// Execution methods
 	Chat(ctx context.Context, sessionID string, userInput string, options ...ChatOption) (*Message, interface{}, error)
 	ChatWithSession(ctx context.Context, session Session, userInput string, options ...ChatOption) (*Message, interface{}, error)
-	
+
 	// Session management
 	GetSession(ctx context.Context, sessionID string) (Session, error)
 	CreateSession(sessionID string) Session
@@ -32,18 +30,10 @@ type Agent interface {
 }
 
 // Tool defines an external capability that an agent can use.
-// Tools must be stateless and thread-safe.
 type Tool interface {
-	// Name returns the unique name of the tool
 	Name() string
-	
-	// Description returns the purpose of the tool for LLM context
 	Description() string
-	
-	// Schema returns the JSON Schema for the tool's parameters
 	Schema() map[string]interface{}
-	
-	// Execute runs the tool with the given arguments
 	Execute(ctx context.Context, args map[string]interface{}) (interface{}, error)
 }
 
@@ -51,22 +41,22 @@ type Tool interface {
 type ChatOption func(*chatOptions)
 
 type chatOptions struct {
-	maxTurns      *int
-	modelSettings *ModelSettings
-	additionalTools []Tool
-	systemMessage string
-	clearHistory  bool
+	maxTurns                  *int
+	modelSettings             *ModelSettings
+	additionalTools           []Tool
+	systemMessage             string
+	clearHistory              bool
 	returnIntermediateResults bool
 }
 
-// WithChatMaxTurns limits the number of tool execution rounds for this conversation
+// WithChatMaxTurns limits the number of tool execution rounds
 func WithChatMaxTurns(maxTurns int) ChatOption {
 	return func(o *chatOptions) {
 		o.maxTurns = &maxTurns
 	}
 }
 
-// WithChatModelSettings overrides the agent's default model settings for this conversation
+// WithChatModelSettings overrides the agent's default model settings
 func WithChatModelSettings(settings *ModelSettings) ChatOption {
 	return func(o *chatOptions) {
 		o.modelSettings = settings
@@ -80,14 +70,14 @@ func WithAdditionalTools(tools ...Tool) ChatOption {
 	}
 }
 
-// WithSystemMessage overrides the agent's instructions for this conversation
+// WithSystemMessage overrides the agent's instructions
 func WithSystemMessage(message string) ChatOption {
 	return func(o *chatOptions) {
 		o.systemMessage = message
 	}
 }
 
-// WithClearHistory starts a fresh conversation, ignoring previous messages
+// WithClearHistory starts a fresh conversation
 func WithClearHistory() ChatOption {
 	return func(o *chatOptions) {
 		o.clearHistory = true
@@ -106,15 +96,15 @@ type AgentOption func(*AgentConfig) error
 
 // AgentConfig holds the configuration for creating an Agent
 type AgentConfig struct {
-	Name         string
-	Description  string
-	Instructions string
-	Model        string
+	Name          string
+	Description   string
+	Instructions  string
+	Model         string
 	ModelSettings *ModelSettings
-	Tools        []Tool
-	OutputType   OutputType
-	FlowRules    []FlowRule
-	
+	Tools         []Tool
+	OutputType    OutputType
+	FlowRules     []FlowRule
+
 	// Runtime dependencies
 	ChatModel    ChatModel
 	SessionStore SessionStore
@@ -126,22 +116,22 @@ type AgentConfig struct {
 // New creates a new Agent with the given options
 func New(options ...AgentOption) (Agent, error) {
 	config := &AgentConfig{
-		Model:       "gpt-4", // Default model
-		MaxTurns:    10,      // Default max turns
+		Model:       "gpt-4",          // Default model
+		MaxTurns:    10,               // Default max turns
 		ToolTimeout: 30 * time.Second, // Default tool timeout
 	}
-	
+
 	for _, option := range options {
 		if err := option(config); err != nil {
 			return nil, fmt.Errorf("agent configuration error: %w", err)
 		}
 	}
-	
+
 	if err := validateAgentConfig(config); err != nil {
 		return nil, fmt.Errorf("invalid agent configuration: %w", err)
 	}
-	
-	return newAgentImpl(config), nil
+
+	return newSimpleAgent(config), nil
 }
 
 // WithName sets the agent's unique identifier
@@ -213,7 +203,7 @@ func WithTools(tools ...Tool) AgentOption {
 			}
 			toolNames[name] = true
 		}
-		
+
 		config.Tools = append(config.Tools, tools...)
 		return nil
 	}
@@ -230,11 +220,8 @@ func WithOutputType(outputType OutputType) AgentOption {
 // WithStructuredOutput creates an OutputType from a struct example
 func WithStructuredOutput(example interface{}) AgentOption {
 	return func(config *AgentConfig) error {
-		// Create OutputType from struct example
-		outputType, err := NewOutputTypeFromStruct(example)
-		if err != nil {
-			return fmt.Errorf("failed to create output type: %w", err)
-		}
+		// Create simple OutputType from struct example
+		outputType := &simpleOutputType{example: example}
 		config.OutputType = outputType
 		return nil
 	}
@@ -244,27 +231,6 @@ func WithStructuredOutput(example interface{}) AgentOption {
 func WithFlowRules(rules ...FlowRule) AgentOption {
 	return func(config *AgentConfig) error {
 		config.FlowRules = append(config.FlowRules, rules...)
-		return nil
-	}
-}
-
-// WithOpenAI creates an OpenAI ChatModel and configures the agent to use it
-func WithOpenAI(apiKey string, options ...OpenAIOption) AgentOption {
-	return func(config *AgentConfig) error {
-		if apiKey == "" {
-			// Try to get from environment
-			apiKey = os.Getenv("OPENAI_API_KEY")
-			if apiKey == "" {
-				return fmt.Errorf("OpenAI API key is required")
-			}
-		}
-		
-		chatModel, err := NewOpenAIChatModel(apiKey, options...)
-		if err != nil {
-			return fmt.Errorf("failed to create OpenAI chat model: %w", err)
-		}
-		
-		config.ChatModel = chatModel
 		return nil
 	}
 }
@@ -326,133 +292,19 @@ func validateAgentConfig(config *AgentConfig) error {
 	if config.Name == "" {
 		return fmt.Errorf("agent name is required")
 	}
-	
+
 	if config.ChatModel == nil {
-		return fmt.Errorf("chat model is required (use WithOpenAI or WithChatModel)")
+		return fmt.Errorf("chat model is required (use WithChatModel)")
 	}
-	
+
 	if config.SessionStore == nil {
 		return fmt.Errorf("session store is required (use WithSessionStore)")
 	}
-	
+
 	return nil
 }
 
-// OpenAIOption configures OpenAI ChatModel creation
-type OpenAIOption func(*OpenAIConfig)
-
-// OpenAIConfig holds configuration for OpenAI ChatModel
-type OpenAIConfig struct {
-	BaseURL      string
-	Organization string
-	Timeout      time.Duration
-	RetryCount   int
+// NewInMemorySessionStore creates a new in-memory SessionStore implementation
+func NewInMemorySessionStore() SessionStore {
+	return newInMemoryStore()
 }
-
-// WithOpenAIBaseURL sets a custom base URL for OpenAI API
-func WithOpenAIBaseURL(baseURL string) OpenAIOption {
-	return func(config *OpenAIConfig) {
-		config.BaseURL = baseURL
-	}
-}
-
-// WithOpenAIOrganization sets the organization ID for OpenAI API
-func WithOpenAIOrganization(organization string) OpenAIOption {
-	return func(config *OpenAIConfig) {
-		config.Organization = organization
-	}
-}
-
-// WithOpenAITimeout sets the request timeout for OpenAI API
-func WithOpenAITimeout(timeout time.Duration) OpenAIOption {
-	return func(config *OpenAIConfig) {
-		config.Timeout = timeout
-	}
-}
-
-// WithOpenAIRetryCount sets the number of retries for OpenAI API
-func WithOpenAIRetryCount(retryCount int) OpenAIOption {
-	return func(config *OpenAIConfig) {
-		config.RetryCount = retryCount
-	}
-}
-
-// NewOpenAIChatModel creates a new OpenAI ChatModel implementation
-// This function will be implemented in internal/llm/openai_chat_model.go
-func NewOpenAIChatModel(apiKey string, options ...OpenAIOption) (ChatModel, error) {
-	config := &OpenAIConfig{
-		Timeout:    30 * time.Second,
-		RetryCount: 3,
-	}
-	
-	for _, option := range options {
-		option(config)
-	}
-	
-	// This will delegate to the internal implementation
-	return newOpenAIChatModelImpl(apiKey, config)
-}
-
-// NewOutputTypeFromStruct creates an OutputType from a struct example
-// This function will be implemented to use reflection
-func NewOutputTypeFromStruct(example interface{}) (OutputType, error) {
-	// This will be implemented to analyze the struct and generate JSON schema
-	return newOutputTypeFromStructImpl(example)
-}
-
-// newAgentImpl creates the concrete Agent implementation
-// This will be implemented in internal/base/agent_impl.go
-func newAgentImpl(config *AgentConfig) Agent {
-	// This will create the concrete implementation
-	return createAgentImplementation(config)
-}
-
-// Functions to be implemented by internal packages
-var (
-	newOpenAIChatModelImpl     func(apiKey string, config *OpenAIConfig) (ChatModel, error)
-	newOutputTypeFromStructImpl func(example interface{}) (OutputType, error)
-	createAgentImplementation  func(config *AgentConfig) Agent
-	sessionFactory            func(id string) Session
-)
-
-// SetImplementationFunctions is used by internal packages to register implementations
-func SetImplementationFunctions(
-	openAIImpl func(apiKey string, config *OpenAIConfig) (ChatModel, error),
-	outputTypeImpl func(example interface{}) (OutputType, error),
-	agentImpl func(config *AgentConfig) Agent,
-) {
-	newOpenAIChatModelImpl = openAIImpl
-	newOutputTypeFromStructImpl = outputTypeImpl
-	createAgentImplementation = agentImpl
-}
-
-// SetSessionFactory is used by internal packages to register session factory
-func SetSessionFactory(factory func(id string) Session) {
-	sessionFactory = factory
-}
-
-// NewSession creates a new Session with the given ID
-func NewSession(id string) Session {
-	if sessionFactory == nil {
-		// Fallback to basic implementation
-		return &basicSession{id: id}
-	}
-	return sessionFactory(id)
-}
-
-// basicSession is a minimal fallback implementation
-type basicSession struct {
-	id string
-}
-
-func (s *basicSession) ID() string                      { return s.id }
-func (s *basicSession) Messages() []Message             { return nil }
-func (s *basicSession) AddMessage(msg Message)          {}
-func (s *basicSession) AddUserMessage(content string)   {}
-func (s *basicSession) AddAssistantMessage(content string) {}
-func (s *basicSession) AddSystemMessage(content string) {}
-func (s *basicSession) AddToolMessage(toolCallID, toolName, content string) {}
-func (s *basicSession) CreatedAt() time.Time            { return time.Time{} }
-func (s *basicSession) UpdatedAt() time.Time            { return time.Time{} }
-func (s *basicSession) Clear()                          {}
-func (s *basicSession) Clone() Session                  { return s }

@@ -8,61 +8,40 @@ import (
 
 // Mock implementations for testing
 
-type mockAgent struct {
-	name          string
-	description   string
-	instructions  string
-	model         string
-	modelSettings *ModelSettings
-	tools         []Tool
-	outputType    OutputType
+type mockChatModel struct {
+	response *Message
+	error    error
 }
 
-// Configuration methods
-func (m *mockAgent) Name() string                  { return m.name }
-func (m *mockAgent) Description() string           { return m.description }
-func (m *mockAgent) Instructions() string          { return m.instructions }
-func (m *mockAgent) Model() string                 { return m.model }
-func (m *mockAgent) ModelSettings() *ModelSettings { return m.modelSettings }
-func (m *mockAgent) Tools() []Tool                 { return m.tools }
-func (m *mockAgent) OutputType() OutputType        { return m.outputType }
-
-// Execution methods - mock implementations
-func (m *mockAgent) Chat(ctx context.Context, sessionID string, userInput string, options ...ChatOption) (*Message, interface{}, error) {
+func (m *mockChatModel) GenerateChatCompletion(ctx context.Context, messages []Message, model string, settings *ModelSettings, tools []Tool) (*Message, error) {
+	if m.error != nil {
+		return nil, m.error
+	}
+	if m.response != nil {
+		return m.response, nil
+	}
 	return &Message{
 		Role:      RoleAssistant,
 		Content:   "Mock response",
 		Timestamp: time.Now(),
-	}, nil, nil
+	}, nil
 }
 
-func (m *mockAgent) ChatWithSession(ctx context.Context, session Session, userInput string, options ...ChatOption) (*Message, interface{}, error) {
-	return &Message{
-		Role:      RoleAssistant,
-		Content:   "Mock response",
-		Timestamp: time.Now(),
-	}, nil, nil
+func (m *mockChatModel) GetSupportedModels() []string {
+	return []string{"mock-model", "test-model"}
 }
 
-// Session management methods - mock implementations
-func (m *mockAgent) GetSession(ctx context.Context, sessionID string) (Session, error) {
-	return NewSession(sessionID), nil
-}
-
-func (m *mockAgent) CreateSession(sessionID string) Session {
-	return NewSession(sessionID)
-}
-
-func (m *mockAgent) SaveSession(ctx context.Context, session Session) error {
+func (m *mockChatModel) ValidateModel(model string) error {
 	return nil
 }
 
-func (m *mockAgent) DeleteSession(ctx context.Context, sessionID string) error {
-	return nil
-}
-
-func (m *mockAgent) ListSessions(ctx context.Context, filter SessionFilter) ([]string, error) {
-	return []string{}, nil
+func (m *mockChatModel) GetModelInfo(model string) (*ModelInfo, error) {
+	return &ModelInfo{
+		ID:          model,
+		Name:        "Mock Model",
+		Description: "A mock model for testing",
+		Provider:    "mock",
+	}, nil
 }
 
 type mockTool struct {
@@ -79,7 +58,7 @@ func (m *mockTool) Execute(ctx context.Context, args map[string]interface{}) (in
 	if m.executeFunc != nil {
 		return m.executeFunc(ctx, args)
 	}
-	return nil, nil
+	return "mock result", nil
 }
 
 type mockSessionStore struct{}
@@ -105,37 +84,8 @@ func (m *mockSessionStore) Exists(ctx context.Context, sessionID string) (bool, 
 }
 
 func TestAgentCreation(t *testing.T) {
-	// Mock implementations for the registry
-	originalChatModelImpl := newOpenAIChatModelImpl
-	originalAgentImpl := createAgentImplementation
-	originalSessionFactory := sessionFactory
-	
-	defer func() {
-		newOpenAIChatModelImpl = originalChatModelImpl
-		createAgentImplementation = originalAgentImpl
-		sessionFactory = originalSessionFactory
-	}()
-	
-	// Set up mock implementations
-	newOpenAIChatModelImpl = func(apiKey string, config *OpenAIConfig) (ChatModel, error) {
-		return NewMockChatModel(), nil
-	}
-	
-	createAgentImplementation = func(config *AgentConfig) Agent {
-		return &mockAgent{
-			name:          config.Name,
-			description:   config.Description,
-			instructions:  config.Instructions,
-			model:         config.Model,
-			modelSettings: config.ModelSettings,
-			tools:         config.Tools,
-			outputType:    config.OutputType,
-		}
-	}
-	
-	sessionFactory = func(id string) Session {
-		return &basicSession{id: id}
-	}
+	mockChat := &mockChatModel{}
+	mockStore := &mockSessionStore{}
 
 	tests := []struct {
 		name     string
@@ -149,8 +99,8 @@ func TestAgentCreation(t *testing.T) {
 			build: func() (Agent, error) {
 				return New(
 					WithName("test-agent"),
-					WithOpenAI("test-key"),
-					WithSessionStore(&mockSessionStore{}),
+					WithChatModel(mockChat),
+					WithSessionStore(mockStore),
 				)
 			},
 			wantErr: false,
@@ -158,7 +108,7 @@ func TestAgentCreation(t *testing.T) {
 				if agent.Name() != "test-agent" {
 					t.Errorf("Name() = %v, want %v", agent.Name(), "test-agent")
 				}
-				if agent.Model() != "gpt-4" {
+				if agent.Model() != "gpt-4" { // Default model
 					t.Errorf("Model() = %v, want %v", agent.Model(), "gpt-4")
 				}
 			},
@@ -177,8 +127,8 @@ func TestAgentCreation(t *testing.T) {
 						MaxTokens:   intPtr(1000),
 					}),
 					WithTools(tool),
-					WithOpenAI("test-key"),
-					WithSessionStore(&mockSessionStore{}),
+					WithChatModel(mockChat),
+					WithSessionStore(mockStore),
 				)
 			},
 			wantErr: false,
@@ -205,8 +155,8 @@ func TestAgentCreation(t *testing.T) {
 			build: func() (Agent, error) {
 				return New(
 					WithName(""),
-					WithOpenAI("test-key"),
-					WithSessionStore(&mockSessionStore{}),
+					WithChatModel(mockChat),
+					WithSessionStore(mockStore),
 				)
 			},
 			wantErr: true,
@@ -217,7 +167,7 @@ func TestAgentCreation(t *testing.T) {
 			build: func() (Agent, error) {
 				return New(
 					WithName("test-agent"),
-					WithSessionStore(&mockSessionStore{}),
+					WithSessionStore(mockStore),
 				)
 			},
 			wantErr: true,
@@ -228,7 +178,7 @@ func TestAgentCreation(t *testing.T) {
 			build: func() (Agent, error) {
 				return New(
 					WithName("test-agent"),
-					WithOpenAI("test-key"),
+					WithChatModel(mockChat),
 				)
 			},
 			wantErr: true,
@@ -255,36 +205,8 @@ func TestAgentCreation(t *testing.T) {
 }
 
 func TestAgentFunctionalOptions(t *testing.T) {
-	// Set up mocks
-	originalChatModelImpl := newOpenAIChatModelImpl
-	originalAgentImpl := createAgentImplementation
-	originalSessionFactory := sessionFactory
-	
-	defer func() {
-		newOpenAIChatModelImpl = originalChatModelImpl
-		createAgentImplementation = originalAgentImpl
-		sessionFactory = originalSessionFactory
-	}()
-	
-	newOpenAIChatModelImpl = func(apiKey string, config *OpenAIConfig) (ChatModel, error) {
-		return NewMockChatModel(), nil
-	}
-	
-	createAgentImplementation = func(config *AgentConfig) Agent {
-		return &mockAgent{
-			name:          config.Name,
-			description:   config.Description,
-			instructions:  config.Instructions,
-			model:         config.Model,
-			modelSettings: config.ModelSettings,
-			tools:         config.Tools,
-			outputType:    config.OutputType,
-		}
-	}
-	
-	sessionFactory = func(id string) Session {
-		return &basicSession{id: id}
-	}
+	mockChat := &mockChatModel{}
+	mockStore := &mockSessionStore{}
 
 	// Test individual options
 	agent, err := New(
@@ -294,73 +216,164 @@ func TestAgentFunctionalOptions(t *testing.T) {
 		WithModel("gpt-4"),
 		WithMaxTurns(5),
 		WithDebugLogging(),
-		WithOpenAI("test-key"),
-		WithSessionStore(&mockSessionStore{}),
+		WithChatModel(mockChat),
+		WithSessionStore(mockStore),
 	)
-	
+
 	if err != nil {
 		t.Fatalf("Failed to create agent: %v", err)
 	}
-	
+
 	if agent.Name() != "test-agent" {
 		t.Errorf("Name() = %v, want %v", agent.Name(), "test-agent")
 	}
-	
+
 	if agent.Description() != "Test description" {
 		t.Errorf("Description() = %v, want %v", agent.Description(), "Test description")
 	}
-	
+
 	if agent.Instructions() != "Test instructions" {
 		t.Errorf("Instructions() = %v, want %v", agent.Instructions(), "Test instructions")
 	}
-	
+
 	if agent.Model() != "gpt-4" {
 		t.Errorf("Model() = %v, want %v", agent.Model(), "gpt-4")
 	}
 }
 
-func TestOpenAIOptions(t *testing.T) {
-	// Set up mock implementation
-	originalImpl := newOpenAIChatModelImpl
-	defer func() { newOpenAIChatModelImpl = originalImpl }()
-	
-	newOpenAIChatModelImpl = func(apiKey string, config *OpenAIConfig) (ChatModel, error) {
-		return NewMockChatModel(), nil
+func TestAgentChat(t *testing.T) {
+	mockChat := &mockChatModel{
+		response: &Message{
+			Role:      RoleAssistant,
+			Content:   "Hello! How can I help you?",
+			Timestamp: time.Now(),
+		},
 	}
-	
+	mockStore := &mockSessionStore{}
+
+	agent, err := New(
+		WithName("test-agent"),
+		WithChatModel(mockChat),
+		WithSessionStore(mockStore),
+	)
+	if err != nil {
+		t.Fatalf("Failed to create agent: %v", err)
+	}
+
+	ctx := context.Background()
+	response, structuredOutput, err := agent.Chat(ctx, "test-session", "Hello!")
+
+	if err != nil {
+		t.Errorf("Chat() error = %v, want nil", err)
+	}
+
+	if response == nil {
+		t.Error("Chat() response is nil")
+	} else {
+		if response.Role != RoleAssistant {
+			t.Errorf("Response role = %v, want %v", response.Role, RoleAssistant)
+		}
+		if response.Content != "Hello! How can I help you?" {
+			t.Errorf("Response content = %v, want %v", response.Content, "Hello! How can I help you?")
+		}
+	}
+
+	if structuredOutput != nil {
+		t.Errorf("Structured output = %v, want nil (no output type set)", structuredOutput)
+	}
+}
+
+func TestModelSettings(t *testing.T) {
 	tests := []struct {
-		name      string
-		options   []OpenAIOption
-		expectErr bool
+		name     string
+		settings *ModelSettings
+		wantErr  bool
 	}{
 		{
-			name:    "default options",
-			options: []OpenAIOption{},
+			name: "valid settings",
+			settings: &ModelSettings{
+				Temperature: floatPtr(0.7),
+				MaxTokens:   intPtr(1000),
+				TopP:        floatPtr(0.9),
+			},
+			wantErr: false,
 		},
 		{
-			name: "with custom options",
-			options: []OpenAIOption{
-				WithOpenAIBaseURL("https://api.example.com"),
-				WithOpenAIOrganization("org-123"),
-				WithOpenAITimeout(60 * time.Second),
-				WithOpenAIRetryCount(5),
+			name: "invalid temperature",
+			settings: &ModelSettings{
+				Temperature: floatPtr(3.0), // Too high
 			},
+			wantErr: true,
+		},
+		{
+			name: "invalid max tokens",
+			settings: &ModelSettings{
+				MaxTokens: intPtr(-1), // Negative
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid top_p",
+			settings: &ModelSettings{
+				TopP: floatPtr(1.5), // Too high
+			},
+			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewOpenAIChatModel("test-key", tt.options...)
-			if (err != nil) != tt.expectErr {
-				t.Errorf("NewOpenAIChatModel() error = %v, expectErr %v", err, tt.expectErr)
+			err := tt.settings.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ModelSettings.Validate() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
 }
 
+func TestInMemorySessionStore(t *testing.T) {
+	store := NewInMemorySessionStore()
+	ctx := context.Background()
+
+	// Test creating and saving a session
+	session := NewSession("test-session")
+	session.AddUserMessage("Hello")
+
+	err := store.Save(ctx, session)
+	if err != nil {
+		t.Errorf("Save() error = %v, want nil", err)
+	}
+
+	// Test loading the session
+	loadedSession, err := store.Load(ctx, "test-session")
+	if err != nil {
+		t.Errorf("Load() error = %v, want nil", err)
+	}
+
+	if loadedSession.ID() != "test-session" {
+		t.Errorf("Loaded session ID = %v, want %v", loadedSession.ID(), "test-session")
+	}
+
+	if len(loadedSession.Messages()) != 1 {
+		t.Errorf("Loaded session messages count = %v, want %v", len(loadedSession.Messages()), 1)
+	}
+
+	// Test deleting the session
+	err = store.Delete(ctx, "test-session")
+	if err != nil {
+		t.Errorf("Delete() error = %v, want nil", err)
+	}
+
+	// Test loading deleted session
+	_, err = store.Load(ctx, "test-session")
+	if err != ErrSessionNotFound {
+		t.Errorf("Load() after delete error = %v, want %v", err, ErrSessionNotFound)
+	}
+}
+
 // Helper functions
 func floatPtr(f float64) *float64 { return &f }
-func intPtr(i int) *int { return &i }
+func intPtr(i int) *int           { return &i }
 
 func containsString(s, substr string) bool {
 	return len(s) >= len(substr) && findString(s, substr) >= 0

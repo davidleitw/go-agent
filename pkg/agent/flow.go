@@ -10,10 +10,10 @@ import (
 type Condition interface {
 	// Name returns the unique name of this condition
 	Name() string
-	
+
 	// Description returns a human-readable description of what this condition checks
 	Description() string
-	
+
 	// Evaluate assesses the condition based on session state and context data
 	// The data parameter typically contains tool results or parsed user intent
 	Evaluate(ctx context.Context, session Session, data map[string]interface{}) (bool, error)
@@ -24,28 +24,28 @@ type FlowAction struct {
 	// NewInstructionsTemplate is a template for dynamic instruction adjustment
 	// It can use format placeholders that will be filled with data values
 	NewInstructionsTemplate string `json:"new_instructions_template,omitempty"`
-	
+
 	// RecommendedToolNames lists tools that should be prioritized in the next turn
 	RecommendedToolNames []string `json:"recommended_tool_names,omitempty"`
-	
+
 	// TriggerNotification indicates whether an external notification should be sent
 	TriggerNotification bool `json:"trigger_notification,omitempty"`
-	
+
 	// NotificationDetails contains structured data for the notification payload
 	NotificationDetails map[string]interface{} `json:"notification_details,omitempty"`
-	
+
 	// NextAgentName specifies the next agent to transition to (for multi-agent workflows)
 	NextAgentName string `json:"next_agent_name,omitempty"`
-	
+
 	// StopExecution indicates whether to halt further processing
 	StopExecution bool `json:"stop_execution,omitempty"`
-	
+
 	// AddSystemMessage adds a system message to the session
 	AddSystemMessage string `json:"add_system_message,omitempty"`
-	
+
 	// ClearHistory removes previous messages from the session
 	ClearHistory bool `json:"clear_history,omitempty"`
-	
+
 	// SetModelSettings overrides the agent's model settings for the next turn
 	SetModelSettings *ModelSettings `json:"set_model_settings,omitempty"`
 }
@@ -54,19 +54,19 @@ type FlowAction struct {
 type FlowRule struct {
 	// Name is a unique identifier for this rule
 	Name string `json:"name"`
-	
+
 	// Description explains what this rule does
 	Description string `json:"description,omitempty"`
-	
+
 	// Condition is the logical condition to evaluate
 	Condition Condition `json:"-"` // Not serialized since it's an interface
-	
+
 	// Action defines what to do when the condition is met
 	Action FlowAction `json:"action"`
-	
+
 	// Priority determines the order of rule evaluation (higher = earlier)
 	Priority int `json:"priority,omitempty"`
-	
+
 	// Enabled allows rules to be temporarily disabled
 	Enabled bool `json:"enabled"`
 }
@@ -90,7 +90,7 @@ func NewFlowRule(name string, condition Condition) *FlowRuleBuilder {
 	if condition == nil {
 		return &FlowRuleBuilder{err: fmt.Errorf("condition cannot be nil")}
 	}
-	
+
 	return &FlowRuleBuilder{
 		name:      name,
 		condition: condition,
@@ -218,7 +218,7 @@ func (b *FlowRuleBuilder) Build() (FlowRule, error) {
 	if b.err != nil {
 		return FlowRule{}, b.err
 	}
-	
+
 	return FlowRule{
 		Name:        b.name,
 		Description: b.description,
@@ -264,12 +264,12 @@ func (fr *FlowAction) Apply(ctx context.Context, session Session, data map[strin
 		}
 		session.AddSystemMessage(message)
 	}
-	
+
 	// Clear history if requested
 	if fr.ClearHistory {
 		session.Clear()
 	}
-	
+
 	return nil
 }
 
@@ -319,10 +319,10 @@ func (c *NeverCondition) Evaluate(ctx context.Context, session Session, data map
 
 // MessageCountCondition checks if the session has a certain number of messages
 type MessageCountCondition struct {
-	name      string
-	minCount  int
-	maxCount  int
-	operator  string // "eq", "gt", "lt", "gte", "lte", "between"
+	name     string
+	minCount int
+	maxCount int
+	operator string // "eq", "gt", "lt", "gte", "lte", "between"
 }
 
 func NewMessageCountCondition(name string, operator string, count int) *MessageCountCondition {
@@ -367,7 +367,7 @@ func (c *MessageCountCondition) Description() string {
 
 func (c *MessageCountCondition) Evaluate(ctx context.Context, session Session, data map[string]interface{}) (bool, error) {
 	count := len(session.Messages())
-	
+
 	switch c.operator {
 	case "eq":
 		return count == c.minCount, nil
@@ -428,7 +428,7 @@ func replaceAll(s, old, new string) string {
 	if old == "" {
 		return s
 	}
-	
+
 	var result []byte
 	i := 0
 	for {

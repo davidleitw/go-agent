@@ -9,19 +9,19 @@ import (
 type Message struct {
 	// Role identifies the message sender (user, assistant, system, tool)
 	Role string `json:"role"`
-	
+
 	// Content is the text content of the message
 	Content string `json:"content"`
-	
+
 	// ToolCalls contains tool calls requested by the assistant
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
-	
+
 	// ToolCallID is set when this message is a response to a tool call
 	ToolCallID string `json:"tool_call_id,omitempty"`
-	
+
 	// Name is used for tool messages to identify which tool was called
 	Name string `json:"name,omitempty"`
-	
+
 	// Timestamp records when this message was created
 	Timestamp time.Time `json:"timestamp"`
 }
@@ -30,10 +30,10 @@ type Message struct {
 type ToolCall struct {
 	// ID is a unique identifier for this tool call
 	ID string `json:"id"`
-	
+
 	// Type is the type of tool call (currently always "function")
 	Type string `json:"type"`
-	
+
 	// Function contains the function call details
 	Function ToolCallFunction `json:"function"`
 }
@@ -42,7 +42,7 @@ type ToolCall struct {
 type ToolCallFunction struct {
 	// Name is the name of the function to call
 	Name string `json:"name"`
-	
+
 	// Arguments is the JSON-encoded arguments for the function
 	Arguments string `json:"arguments"`
 }
@@ -50,7 +50,7 @@ type ToolCallFunction struct {
 // MessageRole constants for different message types
 const (
 	RoleUser      = "user"
-	RoleAssistant = "assistant" 
+	RoleAssistant = "assistant"
 	RoleSystem    = "system"
 	RoleTool      = "tool"
 )
@@ -59,34 +59,34 @@ const (
 type Session interface {
 	// ID returns the unique identifier for this session
 	ID() string
-	
+
 	// Messages returns all messages in the session
 	Messages() []Message
-	
+
 	// AddMessage adds a new message to the session
 	AddMessage(msg Message)
-	
+
 	// AddUserMessage is a convenience method to add a user message
 	AddUserMessage(content string)
-	
+
 	// AddAssistantMessage is a convenience method to add an assistant message
 	AddAssistantMessage(content string)
-	
+
 	// AddSystemMessage is a convenience method to add a system message
 	AddSystemMessage(content string)
-	
+
 	// AddToolMessage is a convenience method to add a tool response message
 	AddToolMessage(toolCallID, toolName, content string)
-	
+
 	// CreatedAt returns when the session was created
 	CreatedAt() time.Time
-	
+
 	// UpdatedAt returns when the session was last updated
 	UpdatedAt() time.Time
-	
+
 	// Clear removes all messages from the session
 	Clear()
-	
+
 	// Clone creates a deep copy of the session
 	Clone() Session
 }
@@ -95,16 +95,16 @@ type Session interface {
 type SessionStore interface {
 	// Save persists a session
 	Save(ctx context.Context, session Session) error
-	
+
 	// Load retrieves a session by ID
 	Load(ctx context.Context, sessionID string) (Session, error)
-	
+
 	// Delete removes a session
 	Delete(ctx context.Context, sessionID string) error
-	
+
 	// List returns all session IDs, optionally filtered
 	List(ctx context.Context, filter SessionFilter) ([]string, error)
-	
+
 	// Exists checks if a session exists
 	Exists(ctx context.Context, sessionID string) (bool, error)
 }
@@ -113,28 +113,28 @@ type SessionStore interface {
 type SessionFilter struct {
 	// IDPrefix filters sessions with IDs starting with this prefix
 	IDPrefix string
-	
+
 	// CreatedAfter filters sessions created after this time
 	CreatedAfter time.Time
-	
-	// CreatedBefore filters sessions created before this time  
+
+	// CreatedBefore filters sessions created before this time
 	CreatedBefore time.Time
-	
+
 	// UpdatedAfter filters sessions updated after this time
 	UpdatedAfter time.Time
-	
+
 	// UpdatedBefore filters sessions updated before this time
 	UpdatedBefore time.Time
-	
+
 	// MinMessages filters sessions with at least this many messages
 	MinMessages int
-	
+
 	// MaxMessages filters sessions with at most this many messages
 	MaxMessages int
-	
+
 	// Limit limits the number of results (0 = no limit)
 	Limit int
-	
+
 	// Offset skips the first N results
 	Offset int
 }
@@ -216,7 +216,7 @@ func (m *Message) Validate() error {
 	if m.Role == "" {
 		return ErrInvalidInput
 	}
-	
+
 	switch m.Role {
 	case RoleUser, RoleAssistant, RoleSystem:
 		// These roles should have content
@@ -231,7 +231,7 @@ func (m *Message) Validate() error {
 	default:
 		return ErrInvalidInput
 	}
-	
+
 	return nil
 }
 

@@ -79,7 +79,7 @@ type ModelPricing struct {
 
 // The ChatModel creation functions have been moved to agent.go
 // to provide a cleaner functional options API.
-// 
+//
 // Use these patterns instead:
 //
 // For OpenAI:
