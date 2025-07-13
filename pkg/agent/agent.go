@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/davidleitw/go-agent/pkg/schema"
 )
 
 // Agent represents an AI agent that can have conversations.
@@ -674,8 +676,9 @@ type Response struct {
 type ChatOption func(*chatConfig)
 
 type chatConfig struct {
-	sessionID string
-	variables map[string]interface{}
+	sessionID     string
+	variables     map[string]interface{}
+	schemaFields  []*schema.Field // Fields to collect from user input
 }
 
 // WithSession specifies a session ID for the conversation
@@ -689,6 +692,24 @@ func WithSession(sessionID string) ChatOption {
 func WithVariables(vars map[string]interface{}) ChatOption {
 	return func(c *chatConfig) {
 		c.variables = vars
+	}
+}
+
+// WithSchema configures the agent to collect specific structured information from user input.
+// The agent will intelligently extract and collect the specified fields through natural conversation.
+//
+// When fields are missing from user input, the agent will use the provided prompts to
+// ask for the information in a contextual and natural way.
+//
+// Example:
+//   agent.WithSchema(
+//       schema.Define("email", "Please provide your email address"),
+//       schema.Define("issue", "Please describe your issue"),
+//       schema.Define("phone", "Contact number (optional)").Optional(),
+//   )
+func WithSchema(fields ...*schema.Field) ChatOption {
+	return func(c *chatConfig) {
+		c.schemaFields = fields
 	}
 }
 
@@ -742,6 +763,22 @@ func (a *simpleAgentImpl) Chat(ctx context.Context, input string, opts ...ChatOp
 	if err != nil {
 		// Create new session if not found
 		session = NewSession(cfg.sessionID)
+	}
+
+	// Handle schema-based information collection if configured
+	if len(cfg.schemaFields) > 0 {
+		// Check if we need to collect any information
+		collectionResponse, shouldReturn, err := a.handleSchemaCollection(ctx, session, input, cfg.schemaFields)
+		if err != nil {
+			return nil, fmt.Errorf("schema collection failed: %w", err)
+		}
+		if shouldReturn {
+			// Save session after schema collection
+			if err := a.sessionStore.Save(ctx, session); err != nil {
+				// Log but don't fail on save error
+			}
+			return collectionResponse, nil
+		}
 	}
 
 	// Execute the agent directly
@@ -1271,6 +1308,234 @@ func extractContainsText(condition string) string {
 		}
 	}
 	return ""
+}
+
+// handleSchemaCollection processes schema-based information collection.
+// Returns (response, shouldReturn, error) where shouldReturn indicates
+// whether the caller should return immediately with the response.
+func (a *simpleAgentImpl) handleSchemaCollection(ctx context.Context, session Session, input string, fields []*schema.Field) (*Response, bool, error) {
+	// Add user input to session for context
+	session.AddUserMessage(input)
+	
+	// Analyze conversation to extract available information
+	extractedData, err := a.extractInformationFromConversation(ctx, session, fields)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to extract information: %w", err)
+	}
+	
+	// Find missing required fields
+	missingFields := a.findMissingRequiredFields(extractedData, fields)
+	
+	if len(missingFields) == 0 {
+		// All required information collected, continue with normal flow
+		return nil, false, nil
+	}
+	
+	// Generate response asking for missing information
+	response, err := a.generateCollectionResponse(ctx, session, missingFields)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to generate collection response: %w", err)
+	}
+	
+	// Add assistant response to session
+	session.AddAssistantMessage(response.Message)
+	
+	return response, true, nil
+}
+
+// extractInformationFromConversation uses LLM to extract structured information from conversation
+func (a *simpleAgentImpl) extractInformationFromConversation(ctx context.Context, session Session, fields []*schema.Field) (map[string]interface{}, error) {
+	// Build prompt for information extraction
+	prompt := a.buildExtractionPrompt(session, fields)
+	
+	// Get the chat model from the core agent
+	var chatModel ChatModel
+	if basicAgent, ok := a.coreAgent.(*basicAgent); ok {
+		chatModel = basicAgent.config.ChatModel
+	} else {
+		return nil, fmt.Errorf("unable to get chat model from core agent")
+	}
+
+	// Create a temporary basic agent for extraction (without schema to avoid recursion)
+	extractorAgent, err := NewBasicAgent(BasicAgentConfig{
+		Name:         "extractor",
+		Instructions: prompt,
+		Model:        a.options.model,
+		ChatModel:    chatModel,
+		SessionStore: NewInMemorySessionStore(),
+		MaxTurns:     1,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create extractor agent: %w", err)
+	}
+	
+	// Create temporary session for extraction
+	extractSession := NewSession("extract-temp")
+	
+	// Execute extraction
+	response, _, err := extractorAgent.Chat(ctx, extractSession, "Extract information from the conversation.")
+	if err != nil {
+		return nil, fmt.Errorf("extraction failed: %w", err)
+	}
+	
+	// Parse the response as JSON
+	var extractedData map[string]interface{}
+	if err := json.Unmarshal([]byte(response.Content), &extractedData); err != nil {
+		// If JSON parsing fails, return empty map (no information extracted)
+		return make(map[string]interface{}), nil
+	}
+	
+	return extractedData, nil
+}
+
+// buildExtractionPrompt creates a prompt for information extraction
+func (a *simpleAgentImpl) buildExtractionPrompt(session Session, fields []*schema.Field) string {
+	var prompt strings.Builder
+	
+	prompt.WriteString("You are an information extraction assistant. Analyze the conversation below and extract any available information that matches the expected fields.\n\n")
+	
+	prompt.WriteString("Expected fields:\n")
+	for _, field := range fields {
+		required := "required"
+		if !field.Required() {
+			required = "optional"
+		}
+		prompt.WriteString(fmt.Sprintf("- %s: %s (%s)\n", field.Name(), field.Prompt(), required))
+	}
+	
+	prompt.WriteString("\nConversation history:\n")
+	messages := session.Messages()
+	for _, msg := range messages {
+		if msg.Role == RoleUser || msg.Role == RoleAssistant {
+			prompt.WriteString(fmt.Sprintf("%s: %s\n", msg.Role, msg.Content))
+		}
+	}
+	
+	prompt.WriteString("\nInstructions:\n")
+	prompt.WriteString("1. Extract information from the conversation that matches the expected fields\n")
+	prompt.WriteString("2. Return ONLY a JSON object with the extracted information\n")
+	prompt.WriteString("3. Use null for fields where no information was found\n")
+	prompt.WriteString("4. Be conservative - only extract information that is clearly stated\n\n")
+	
+	prompt.WriteString("Example response format:\n")
+	prompt.WriteString("{\n")
+	for i, field := range fields {
+		comma := ","
+		if i == len(fields)-1 {
+			comma = ""
+		}
+		prompt.WriteString(fmt.Sprintf("  \"%s\": \"extracted_value_or_null\"%s\n", field.Name(), comma))
+	}
+	prompt.WriteString("}\n")
+	
+	return prompt.String()
+}
+
+// findMissingRequiredFields identifies which required fields are still missing
+func (a *simpleAgentImpl) findMissingRequiredFields(extractedData map[string]interface{}, fields []*schema.Field) []*schema.Field {
+	var missing []*schema.Field
+	
+	for _, field := range fields {
+		if !field.Required() {
+			continue // Skip optional fields
+		}
+		
+		value, exists := extractedData[field.Name()]
+		if !exists || value == nil || value == "" {
+			missing = append(missing, field)
+		}
+	}
+	
+	return missing
+}
+
+// generateCollectionResponse creates a response asking for missing information
+func (a *simpleAgentImpl) generateCollectionResponse(ctx context.Context, session Session, missingFields []*schema.Field) (*Response, error) {
+	// Build prompt for generating collection response
+	prompt := a.buildCollectionPrompt(session, missingFields)
+	
+	// Get the chat model from the core agent
+	var chatModel ChatModel
+	if basicAgent, ok := a.coreAgent.(*basicAgent); ok {
+		chatModel = basicAgent.config.ChatModel
+	} else {
+		return nil, fmt.Errorf("unable to get chat model from core agent")
+	}
+
+	// Create a temporary agent for response generation
+	responseAgent, err := NewBasicAgent(BasicAgentConfig{
+		Name:         "response_generator",
+		Instructions: prompt,
+		Model:        a.options.model,
+		ChatModel:    chatModel,
+		SessionStore: NewInMemorySessionStore(),
+		MaxTurns:     1,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create response agent: %w", err)
+	}
+	
+	// Create temporary session for response generation
+	responseSession := NewSession("response-temp")
+	
+	// Generate response
+	message, _, err := responseAgent.Chat(ctx, responseSession, "Generate a natural response asking for the missing information.")
+	if err != nil {
+		return nil, fmt.Errorf("response generation failed: %w", err)
+	}
+	
+	// Build response object
+	response := &Response{
+		Message:  message.Content,
+		Data:     nil,
+		Session:  session,
+		Metadata: map[string]interface{}{
+			"schema_collection": true,
+			"missing_fields":    getMissingFieldNames(missingFields),
+			"timestamp":         timeNow(),
+		},
+	}
+	
+	return response, nil
+}
+
+// buildCollectionPrompt creates a prompt for generating information collection responses
+func (a *simpleAgentImpl) buildCollectionPrompt(session Session, missingFields []*schema.Field) string {
+	var prompt strings.Builder
+	
+	prompt.WriteString("You are a helpful assistant that naturally asks for missing information. Based on the conversation context, generate a friendly response that asks for the missing required information.\n\n")
+	
+	prompt.WriteString("Missing required information:\n")
+	for _, field := range missingFields {
+		prompt.WriteString(fmt.Sprintf("- %s: %s\n", field.Name(), field.Prompt()))
+	}
+	
+	prompt.WriteString("\nConversation context:\n")
+	messages := session.Messages()
+	for _, msg := range messages {
+		if msg.Role == RoleUser || msg.Role == RoleAssistant {
+			prompt.WriteString(fmt.Sprintf("%s: %s\n", msg.Role, msg.Content))
+		}
+	}
+	
+	prompt.WriteString("\nInstructions:\n")
+	prompt.WriteString("1. Acknowledge what information you received from the user\n")
+	prompt.WriteString("2. Naturally ask for the missing information using the provided prompts\n")
+	prompt.WriteString("3. Be friendly and contextual\n")
+	prompt.WriteString("4. Combine multiple questions when appropriate\n")
+	prompt.WriteString("5. Keep the conversation flowing naturally\n")
+	prompt.WriteString("6. Return only the response text, no additional formatting\n")
+	
+	return prompt.String()
+}
+
+// getMissingFieldNames extracts field names from missing fields for metadata
+func getMissingFieldNames(fields []*schema.Field) []string {
+	names := make([]string, len(fields))
+	for i, field := range fields {
+		names[i] = field.Name()
+	}
+	return names
 }
 
 // Helper functions
