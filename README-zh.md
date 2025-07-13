@@ -1,5 +1,9 @@
 # go-agent
 
+<div align="center">
+  <img src="docs/images/gopher.png" alt="Go Agent" width="200" height="200">
+</div>
+
 [![English](https://img.shields.io/badge/README-English-blue.svg)](README.md) [![繁體中文](https://img.shields.io/badge/README-繁體中文-red.svg)](README-zh.md)
 
 一個輕量級的 Go AI 代理框架，用於建立智能對話和自動化工作流程，具有高效率。
@@ -35,28 +39,34 @@ import (
     "os"
 
     "github.com/davidleitw/go-agent/pkg/agent"
-    "github.com/davidleitw/go-agent/internal/storage"
+    "github.com/davidleitw/go-agent/pkg/openai"
 )
 
 func main() {
-    // Create an agent with functional options
+    // 建立 OpenAI chat model
+    chatModel, err := openai.NewChatModel(os.Getenv("OPENAI_API_KEY"), nil)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // 使用函數選項建立 agent
     assistant, err := agent.New(
         agent.WithName("helpful-assistant"),
         agent.WithDescription("A helpful AI assistant"),
         agent.WithInstructions("You are a helpful assistant. Be concise and friendly."),
-        agent.WithOpenAI(os.Getenv("OPENAI_API_KEY")),
+        agent.WithChatModel(chatModel),
         agent.WithModel("gpt-4"),
         agent.WithModelSettings(&agent.ModelSettings{
             Temperature: floatPtr(0.7),
             MaxTokens:   intPtr(1000),
         }),
-        agent.WithSessionStore(storage.NewInMemory()),
+        agent.WithSessionStore(agent.NewInMemorySessionStore()),
     )
     if err != nil {
         log.Fatal(err)
     }
 
-    // Have a conversation - much simpler!
+    // 開始對話 - 簡單多了！
     ctx := context.Background()
     response, _, err := assistant.Chat(ctx, "session-1", "Hello! How are you?")
     if err != nil {
@@ -107,14 +117,20 @@ func (t *WeatherTool) Execute(ctx context.Context, args map[string]interface{}) 
     }, nil
 }
 
-// Create agent with tool - much cleaner!
+// 建立 OpenAI chat model
+chatModel, err := openai.NewChatModel(os.Getenv("OPENAI_API_KEY"), nil)
+if err != nil {
+    log.Fatal(err)
+}
+
+// 建立搭配工具的 agent - 更簡潔！
 weatherAgent, err := agent.New(
     agent.WithName("weather-assistant"),
     agent.WithInstructions("You can help users get weather information."),
-    agent.WithOpenAI(os.Getenv("OPENAI_API_KEY")),
+    agent.WithChatModel(chatModel),
     agent.WithModel("gpt-4"),
     agent.WithTools(&WeatherTool{}),
-    agent.WithSessionStore(storage.NewInMemory()),
+    agent.WithSessionStore(agent.NewInMemorySessionStore()),
 )
 ```
 
@@ -128,14 +144,20 @@ type TaskResult struct {
     Tags     []string `json:"tags"`
 }
 
-// Create agent with structured output - much simpler!
+// 建立 OpenAI chat model
+chatModel, err := openai.NewChatModel(os.Getenv("OPENAI_API_KEY"), nil)
+if err != nil {
+    log.Fatal(err)
+}
+
+// 建立具有結構化輸出的 agent - 更簡單！
 taskAgent, err := agent.New(
     agent.WithName("task-creator"),
     agent.WithInstructions("Create tasks based on user input. Return structured JSON."),
-    agent.WithOpenAI(os.Getenv("OPENAI_API_KEY")),
+    agent.WithChatModel(chatModel),
     agent.WithModel("gpt-4"),
-    agent.WithStructuredOutput(&TaskResult{}), // Automatically generates schema
-    agent.WithSessionStore(storage.NewInMemory()),
+    agent.WithStructuredOutput(&TaskResult{}), // 自動生成 schema
+    agent.WithSessionStore(agent.NewInMemorySessionStore()),
 )
 
 // The agent will automatically validate and parse the output
@@ -158,14 +180,20 @@ flowRule, err := agent.NewFlowRule("collect-missing-info", missingInfoCondition)
     WithSystemMessage("The user needs to provide additional information.").
     Build()
 
-// Create agent with flow rules
+// 建立 OpenAI chat model
+chatModel, err := openai.NewChatModel(os.Getenv("OPENAI_API_KEY"), nil)
+if err != nil {
+    log.Fatal(err)
+}
+
+// 建立具有流程規則的 agent
 smartAgent, err := agent.New(
     agent.WithName("smart-assistant"),
     agent.WithInstructions("You are a smart assistant that adapts based on context."),
-    agent.WithOpenAI(os.Getenv("OPENAI_API_KEY")),
+    agent.WithChatModel(chatModel),
     agent.WithModel("gpt-4"),
     agent.WithFlowRules(flowRule),
-    agent.WithSessionStore(storage.NewInMemory()),
+    agent.WithSessionStore(agent.NewInMemorySessionStore()),
 )
 ```
 
@@ -173,10 +201,8 @@ smartAgent, err := agent.New(
 
 該框架採用清晰的關注點分離設計：
 
-- **`pkg/agent/`**: 核心介面和公共 API
-- **`internal/base/`**: 預設實作
-- **`internal/llm/`**: LLM 提供商實作
-- **`internal/storage/`**: 會話儲存實作
+- **`pkg/agent/`**: 核心介面、實作和公共 API
+- **`pkg/openai/`**: OpenAI ChatModel 實作
 
 ### 核心組件
 
@@ -197,17 +223,142 @@ smartAgent, err := agent.New(
 ## 儲存後端
 
 - ✅ **記憶體**: 用於開發和測試
-- ✅ **檔案系統**: 簡單的檔案持久化
 - 🔜 **Redis**: 用於生產環境的分散式系統
 - 🔜 **PostgreSQL**: 用於進階查詢和分析
 
 ## 範例
 
-查看 [`cmd/examples/`](./cmd/examples/) 目錄獲得完整的工作範例：
+查看 [`cmd/examples/`](./cmd/examples/) 目錄獲得完整的工作範例。每個範例都是一個獨立的 Go 程式，演示 go-agent 框架的特定功能。
 
-- **基本聊天代理**: 簡單的對話式 AI
-- **任務自動化代理**: 具有工具和結構化輸出的進階功能
-- **多代理工作流程**: 協調的多代理互動
+### 🚀 快速設定
+
+1. **配置你的 OpenAI API 金鑰**:
+   ```bash
+   # 複製範例環境檔案
+   cp .env.example .env
+   
+   # 編輯 .env 並添加你的 OpenAI API 金鑰
+   # OPENAI_API_KEY=your_openai_api_key_here
+   ```
+
+2. **安裝依賴項** (針對範例):
+   ```bash
+   go mod download
+   ```
+
+### 📋 可用範例
+
+#### 1. **基本聊天** (`cmd/examples/basic-chat/`)
+簡單的對話式 AI，演示核心框架使用。
+
+**特色**:
+- 環境變量配置 (.env 支援)
+- 使用函數式選項的基本代理創建
+- 簡單的對話流程
+- 詳細的日誌記錄用於排查問題
+
+**運行範例**:
+```bash
+cd cmd/examples/basic-chat
+go run main.go
+```
+
+**展示內容**:
+- 使用 `agent.New()` 創建代理
+- OpenAI 整合
+- 會話管理
+- 基本對話處理
+
+---
+
+#### 2. **任務完成** (`cmd/examples/task-completion/`)
+進階範例，展示條件驗證和迭代式資訊收集。
+
+**特色**:
+- **條件式流程**: 演示缺失資訊檢測
+- **結構化輸出**: 使用 JSON schema 進行狀態追蹤
+- **迭代收集**: 模擬餐廳預訂系統
+- **完成檢測**: LLM 在所有條件滿足時設定完成標誌
+- **安全限制**: 最多 5 次迭代以防止過度使用 token
+
+**運行範例**:
+```bash
+cd cmd/examples/task-completion
+go run main.go
+```
+
+**展示內容**:
+- 使用自定義類型的結構化輸出 (`ReservationStatus`)
+- 條件驗證邏輯
+- 多輪對話管理
+- LLM 驅動的完成標誌檢測
+- 詳細的流程日誌記錄
+
+**模擬流程**:
+1. 用戶: "我想要預訂餐廳，我是李先生" → 缺少: 電話、日期、時間、人數
+2. 用戶: "我的電話是0912345678，想要明天晚上7點" → 缺少: 人數
+3. 用戶: "4個人" → 所有條件滿足，completion_flag = true
+
+---
+
+#### 3. **計算器工具** (`cmd/examples/calculator-tool/`)
+演示工具整合和 OpenAI 函數呼叫。
+
+**特色**:
+- **自定義工具實現**: 數學計算器
+- **函數呼叫**: OpenAI 工具整合
+- **多種運算**: 加、減、乘、除、乘方、開方
+- **結構化結果**: 工具返回詳細的計算步驟
+- **錯誤處理**: 除零、無效運算等
+
+**運行範例**:
+```bash
+cd cmd/examples/calculator-tool
+go run main.go
+```
+
+**展示內容**:
+- 自定義工具實現 (`agent.Tool` 介面)
+- OpenAI 函數呼叫機制
+- 工具參數驗證
+- 結構化工具回應
+- 工具執行日誌記錄
+
+**支援的運算**:
+- `add`: 加法 (15 + 27)
+- `subtract`: 減法 (125 - 47)
+- `multiply`: 乘法 (13 × 7)
+- `divide`: 除法 (144 ÷ 12)
+- `power`: 乘方 (2^8)
+- `sqrt`: 開方 (√64)
+
+### 🔧 問題排查
+
+所有範例都包含詳細的日誌記錄，幫助你理解執行流程：
+
+- **REQUEST**: 用戶輸入和請求參數
+- **AGENT**: 代理處理和決策過程
+- **TOOL**: 工具執行詳情和結果
+- **RESPONSE**: LLM 回應和解析結果
+- **SESSION**: 會話狀態變化
+- **STRUCTURED**: 結構化輸出解析
+- **ERROR**: 錯誤詳情和恢復過程
+
+**常見問題**:
+
+1. **缺少 API 金鑰**: 確保在 `.env` 檔案中設定了 `OPENAI_API_KEY`
+2. **匯入錯誤**: 確保從範例目錄運行
+3. **模組問題**: 在範例目錄中運行 `go mod tidy`
+
+**範例日誌**:
+```
+✅ OpenAI API key loaded (length: 51)
+📝 Creating AI agent...
+✅ Agent 'helpful-assistant' created successfully
+REQUEST[1]: Sending user input to agent
+RESPONSE[1]: Duration: 1.234s
+SESSION[1]: Total messages: 2
+```
 
 ## 開發
 
