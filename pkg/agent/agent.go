@@ -2,100 +2,47 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"reflect"
+	"strings"
+	"sync"
 	"time"
 )
 
-// Agent represents an AI agent that can have conversations and execute tools.
+// Agent represents an AI agent that can have conversations.
+// This is the core interface that users implement to create custom agents.
 type Agent interface {
-	// Configuration methods
+	// Configuration methods for agent metadata
 	Name() string
 	Description() string
-	Instructions() string
-	Model() string
-	ModelSettings() *ModelSettings
-	Tools() []Tool
-	OutputType() OutputType
 
-	// Execution methods
-	Chat(ctx context.Context, sessionID string, userInput string, options ...ChatOption) (*Message, interface{}, error)
-	ChatWithSession(ctx context.Context, session Session, userInput string, options ...ChatOption) (*Message, interface{}, error)
+	// Chat executes a conversation turn with the given session and user input.
+	// Returns the agent's response message and optional structured output.
+	Chat(ctx context.Context, session Session, userInput string) (*Message, any, error)
 
-	// Session management
-	GetSession(ctx context.Context, sessionID string) (Session, error)
-	CreateSession(sessionID string) Session
-	SaveSession(ctx context.Context, session Session) error
-	DeleteSession(ctx context.Context, sessionID string) error
-	ListSessions(ctx context.Context, filter SessionFilter) ([]string, error)
+	// Optional capabilities that agents can implement
+
+	// GetOutputType returns the expected structured output type, if any
+	GetOutputType() OutputType
+
+	// GetTools returns the tools available to this agent
+	GetTools() []Tool
+
+	// GetFlowRules returns the flow rules for dynamic behavior
+	GetFlowRules() []FlowRule
 }
 
 // Tool defines an external capability that an agent can use.
 type Tool interface {
 	Name() string
 	Description() string
-	Schema() map[string]interface{}
-	Execute(ctx context.Context, args map[string]interface{}) (interface{}, error)
+	Schema() map[string]any
+	Execute(ctx context.Context, args map[string]any) (any, error)
 }
 
-// ChatOption allows customizing individual chat calls
-type ChatOption func(*chatOptions)
-
-type chatOptions struct {
-	maxTurns                  *int
-	modelSettings             *ModelSettings
-	additionalTools           []Tool
-	systemMessage             string
-	clearHistory              bool
-	returnIntermediateResults bool
-}
-
-// WithChatMaxTurns limits the number of tool execution rounds
-func WithChatMaxTurns(maxTurns int) ChatOption {
-	return func(o *chatOptions) {
-		o.maxTurns = &maxTurns
-	}
-}
-
-// WithChatModelSettings overrides the agent's default model settings
-func WithChatModelSettings(settings *ModelSettings) ChatOption {
-	return func(o *chatOptions) {
-		o.modelSettings = settings
-	}
-}
-
-// WithAdditionalTools adds extra tools for this conversation only
-func WithAdditionalTools(tools ...Tool) ChatOption {
-	return func(o *chatOptions) {
-		o.additionalTools = append(o.additionalTools, tools...)
-	}
-}
-
-// WithSystemMessage overrides the agent's instructions
-func WithSystemMessage(message string) ChatOption {
-	return func(o *chatOptions) {
-		o.systemMessage = message
-	}
-}
-
-// WithClearHistory starts a fresh conversation
-func WithClearHistory() ChatOption {
-	return func(o *chatOptions) {
-		o.clearHistory = true
-	}
-}
-
-// WithIntermediateResults returns intermediate tool call results
-func WithIntermediateResults() ChatOption {
-	return func(o *chatOptions) {
-		o.returnIntermediateResults = true
-	}
-}
-
-// AgentOption configures an Agent during creation
-type AgentOption func(*AgentConfig) error
-
-// AgentConfig holds the configuration for creating an Agent
-type AgentConfig struct {
+// BasicAgentConfig holds configuration for creating a basic agent
+type BasicAgentConfig struct {
 	Name          string
 	Description   string
 	Instructions  string
@@ -110,201 +57,1222 @@ type AgentConfig struct {
 	SessionStore SessionStore
 	MaxTurns     int
 	ToolTimeout  time.Duration
-	DebugLogging bool
 }
 
-// New creates a new Agent with the given options
-func New(options ...AgentOption) (Agent, error) {
-	config := &AgentConfig{
-		Model:       "gpt-4",          // Default model
-		MaxTurns:    10,               // Default max turns
-		ToolTimeout: 30 * time.Second, // Default tool timeout
+// NewBasicAgent creates a basic, ready-to-use agent with sensible defaults.
+// This is the recommended way to create an agent for most use cases.
+func NewBasicAgent(config BasicAgentConfig) (Agent, error) {
+	// Set defaults
+	if config.Model == "" {
+		config.Model = "gpt-4o-mini"
+	}
+	if config.MaxTurns == 0 {
+		config.MaxTurns = 5
+	}
+	if config.ToolTimeout == 0 {
+		config.ToolTimeout = 30 * time.Second
 	}
 
-	for _, option := range options {
-		if err := option(config); err != nil {
-			return nil, fmt.Errorf("agent configuration error: %w", err)
-		}
-	}
-
-	if err := validateAgentConfig(config); err != nil {
-		return nil, fmt.Errorf("invalid agent configuration: %w", err)
-	}
-
-	return newSimpleAgent(config), nil
-}
-
-// WithName sets the agent's unique identifier
-func WithName(name string) AgentOption {
-	return func(config *AgentConfig) error {
-		if name == "" {
-			return fmt.Errorf("agent name cannot be empty")
-		}
-		config.Name = name
-		return nil
-	}
-}
-
-// WithDescription sets the agent's description
-func WithDescription(description string) AgentOption {
-	return func(config *AgentConfig) error {
-		config.Description = description
-		return nil
-	}
-}
-
-// WithInstructions sets the agent's system instructions/prompt
-func WithInstructions(instructions string) AgentOption {
-	return func(config *AgentConfig) error {
-		config.Instructions = instructions
-		return nil
-	}
-}
-
-// WithModel sets the LLM model to use
-func WithModel(model string) AgentOption {
-	return func(config *AgentConfig) error {
-		if model == "" {
-			return fmt.Errorf("model cannot be empty")
-		}
-		config.Model = model
-		return nil
-	}
-}
-
-// WithModelSettings sets the model configuration parameters
-func WithModelSettings(settings *ModelSettings) AgentOption {
-	return func(config *AgentConfig) error {
-		if settings != nil {
-			if err := settings.Validate(); err != nil {
-				return fmt.Errorf("invalid model settings: %w", err)
-			}
-		}
-		config.ModelSettings = settings
-		return nil
-	}
-}
-
-// WithTools adds tools to the agent
-func WithTools(tools ...Tool) AgentOption {
-	return func(config *AgentConfig) error {
-		// Validate tools
-		toolNames := make(map[string]bool)
-		for _, tool := range tools {
-			if tool == nil {
-				return fmt.Errorf("tool cannot be nil")
-			}
-			name := tool.Name()
-			if name == "" {
-				return fmt.Errorf("tool name cannot be empty")
-			}
-			if toolNames[name] {
-				return fmt.Errorf("duplicate tool name: %s", name)
-			}
-			toolNames[name] = true
-		}
-
-		config.Tools = append(config.Tools, tools...)
-		return nil
-	}
-}
-
-// WithOutputType sets the expected structured output format
-func WithOutputType(outputType OutputType) AgentOption {
-	return func(config *AgentConfig) error {
-		config.OutputType = outputType
-		return nil
-	}
-}
-
-// WithStructuredOutput creates an OutputType from a struct example
-func WithStructuredOutput(example interface{}) AgentOption {
-	return func(config *AgentConfig) error {
-		// Create simple OutputType from struct example
-		outputType := &simpleOutputType{example: example}
-		config.OutputType = outputType
-		return nil
-	}
-}
-
-// WithFlowRules adds flow rules for dynamic behavior
-func WithFlowRules(rules ...FlowRule) AgentOption {
-	return func(config *AgentConfig) error {
-		config.FlowRules = append(config.FlowRules, rules...)
-		return nil
-	}
-}
-
-// WithChatModel sets a custom ChatModel implementation
-func WithChatModel(chatModel ChatModel) AgentOption {
-	return func(config *AgentConfig) error {
-		if chatModel == nil {
-			return fmt.Errorf("chat model cannot be nil")
-		}
-		config.ChatModel = chatModel
-		return nil
-	}
-}
-
-// WithSessionStore sets the session storage backend
-func WithSessionStore(store SessionStore) AgentOption {
-	return func(config *AgentConfig) error {
-		if store == nil {
-			return fmt.Errorf("session store cannot be nil")
-		}
-		config.SessionStore = store
-		return nil
-	}
-}
-
-// WithMaxTurns sets the maximum number of tool execution rounds
-func WithMaxTurns(maxTurns int) AgentOption {
-	return func(config *AgentConfig) error {
-		if maxTurns <= 0 {
-			return fmt.Errorf("max turns must be positive")
-		}
-		config.MaxTurns = maxTurns
-		return nil
-	}
-}
-
-// WithToolTimeout sets the timeout for tool execution
-func WithToolTimeout(timeout time.Duration) AgentOption {
-	return func(config *AgentConfig) error {
-		if timeout <= 0 {
-			return fmt.Errorf("tool timeout must be positive")
-		}
-		config.ToolTimeout = timeout
-		return nil
-	}
-}
-
-// WithDebugLogging enables debug logging for the agent
-func WithDebugLogging() AgentOption {
-	return func(config *AgentConfig) error {
-		config.DebugLogging = true
-		return nil
-	}
-}
-
-// validateAgentConfig validates the agent configuration
-func validateAgentConfig(config *AgentConfig) error {
+	// Validate required fields
 	if config.Name == "" {
-		return fmt.Errorf("agent name is required")
+		return nil, fmt.Errorf("agent name is required")
 	}
-
 	if config.ChatModel == nil {
-		return fmt.Errorf("chat model is required (use WithChatModel)")
+		return nil, fmt.Errorf("chat model is required")
+	}
+	if config.SessionStore == nil {
+		config.SessionStore = NewInMemorySessionStore()
 	}
 
-	if config.SessionStore == nil {
-		return fmt.Errorf("session store is required (use WithSessionStore)")
+	return &basicAgent{
+		config: config,
+	}, nil
+}
+
+// basicAgent implements the Agent interface
+type basicAgent struct {
+	config BasicAgentConfig
+}
+
+// Name returns the agent's name
+func (a *basicAgent) Name() string {
+	return a.config.Name
+}
+
+// Description returns the agent's description
+func (a *basicAgent) Description() string {
+	return a.config.Description
+}
+
+// GetOutputType returns the expected structured output type
+func (a *basicAgent) GetOutputType() OutputType {
+	return a.config.OutputType
+}
+
+// GetTools returns the tools available to this agent
+func (a *basicAgent) GetTools() []Tool {
+	return a.config.Tools
+}
+
+// GetFlowRules returns the flow rules for dynamic behavior
+func (a *basicAgent) GetFlowRules() []FlowRule {
+	return a.config.FlowRules
+}
+
+// Chat implements the Agent interface
+func (a *basicAgent) Chat(ctx context.Context, session Session, userInput string) (*Message, any, error) {
+	// Add user message to session
+	userMessage := NewUserMessage(userInput)
+	session.AddMessage(userMessage)
+
+	// Get tools and flow rules from the agent interface
+	tools := a.GetTools()
+	flowRules := a.GetFlowRules()
+	outputType := a.GetOutputType()
+
+	// Apply flow rules if any (before building final message list)
+	var modifiedPrompt string
+	var fallbackResponse string
+	if len(flowRules) > 0 {
+		// Create flow data context using session messages (without system instruction yet)
+		sessionMessages := session.Messages()
+		flowData := make(map[string]any)
+		flowData["userInput"] = userInput
+		flowData["messageCount"] = len(sessionMessages)
+
+		// Evaluate and apply all triggered flow rules
+		for _, rule := range flowRules {
+			shouldTrigger, err := rule.Evaluate(ctx, session, flowData)
+			if err != nil {
+				// Log but don't fail
+				fmt.Printf("Warning: flow rule '%s' evaluation failed: %v\n", rule.Name, err)
+				continue
+			}
+
+			if shouldTrigger {
+				// Apply flow rule actions (these may modify the session)
+				result := rule.Action.Apply(ctx, session, flowData)
+				if result.Error != nil {
+					fmt.Printf("Warning: flow rule '%s' action failed: %v\n", rule.Name, result.Error)
+					continue
+				}
+
+				// Handle direct response (Ask action)
+				if result.ShouldStop && result.DirectResponse != nil {
+					// Save session and return the direct response immediately
+					if err := a.config.SessionStore.Save(ctx, session); err != nil {
+						fmt.Printf("Warning: failed to save session: %v\n", err)
+					}
+					return result.DirectResponse, nil, nil
+				}
+
+				// Handle modified prompt (AskAI action)
+				if result.ModifiedPrompt != "" {
+					modifiedPrompt = result.ModifiedPrompt
+				}
+				
+				// Handle fallback response for AskAI
+				if result.FallbackResponse != "" {
+					fallbackResponse = result.FallbackResponse
+				}
+
+				// Handle stop execution
+				if result.ShouldStop {
+					break
+				}
+			}
+		}
+	}
+
+	// Build final message list with system instruction (only once, at the end)
+	messages := session.Messages()
+	
+	// Use modified prompt if available, otherwise use default instructions
+	instructions := a.config.Instructions
+	if modifiedPrompt != "" {
+		// For AskAI, create a context-aware prompt
+		contextualPrompt := fmt.Sprintf("%s\n\nCurrent situation: %s\nTask: %s", 
+			a.config.Instructions, 
+			buildContextualPrompt(session, userInput),
+			modifiedPrompt)
+		instructions = contextualPrompt
+	}
+	
+	if instructions != "" {
+		systemMessage := NewSystemMessage(instructions)
+		// Insert system message at the beginning
+		finalMessages := []Message{systemMessage}
+		finalMessages = append(finalMessages, messages...)
+		messages = finalMessages
+	}
+
+	// Execute conversation loop with tool calls
+	maxTurns := a.config.MaxTurns
+	for range maxTurns {
+		// Call chat model
+		response, err := a.config.ChatModel.GenerateChatCompletion(
+			ctx,
+			messages,
+			a.config.Model,
+			a.config.ModelSettings,
+			tools,
+		)
+		if err != nil {
+			// Use fallback response if available for AskAI failures
+			if fallbackResponse != "" {
+				fallbackMessage := &Message{
+					Role:      RoleAssistant,
+					Content:   fallbackResponse,
+					Timestamp: timeNow(),
+				}
+				session.AddMessage(*fallbackMessage)
+				
+				// Save session
+				if err := a.config.SessionStore.Save(ctx, session); err != nil {
+					fmt.Printf("Warning: failed to save session: %v\n", err)
+				}
+				
+				return fallbackMessage, nil, nil
+			}
+			return nil, nil, fmt.Errorf("failed to generate chat completion: %w", err)
+		}
+
+		// Add response to session
+		session.AddMessage(*response)
+
+		// If no tool calls, we're done
+		if len(response.ToolCalls) == 0 {
+			// Handle structured output if needed
+			var structuredOutput any
+			if outputType != nil && response.Content != "" {
+				instance := outputType.NewInstance()
+				if err := json.Unmarshal([]byte(response.Content), instance); err == nil {
+					if outputType.Validate(instance) == nil {
+						structuredOutput = instance
+					}
+				}
+			}
+
+			// Save session
+			if err := a.config.SessionStore.Save(ctx, session); err != nil {
+				// Log but don't fail
+				fmt.Printf("Warning: failed to save session: %v\n", err)
+			}
+
+			return response, structuredOutput, nil
+		}
+
+		// Execute tool calls
+		toolCallsHandled := 0
+		for _, toolCall := range response.ToolCalls {
+			// Find matching tool
+			var matchingTool Tool
+			for _, tool := range tools {
+				if tool.Name() == toolCall.Function.Name {
+					matchingTool = tool
+					break
+				}
+			}
+
+			if matchingTool == nil {
+				// Tool not found
+				errorMsg := NewToolMessage(
+					toolCall.ID,
+					toolCall.Function.Name,
+					fmt.Sprintf("Error: tool '%s' not found", toolCall.Function.Name),
+				)
+				session.AddMessage(errorMsg)
+				toolCallsHandled++
+				continue
+			}
+
+			// Parse tool arguments
+			var args map[string]any
+			if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
+				errorMsg := NewToolMessage(
+					toolCall.ID,
+					toolCall.Function.Name,
+					fmt.Sprintf("Error: invalid arguments - %v", err),
+				)
+				session.AddMessage(errorMsg)
+				toolCallsHandled++
+				continue
+			}
+
+			// Create context with timeout for tool execution
+			toolCtx, cancel := context.WithTimeout(ctx, a.config.ToolTimeout)
+
+			// Execute the tool
+			result, err := matchingTool.Execute(toolCtx, args)
+			cancel()
+
+			if err != nil {
+				errorMsg := NewToolMessage(
+					toolCall.ID,
+					toolCall.Function.Name,
+					fmt.Sprintf("Error: %v", err),
+				)
+				session.AddMessage(errorMsg)
+				toolCallsHandled++
+				continue
+			}
+
+			// Convert result to JSON string
+			resultJSON, err := json.Marshal(result)
+			if err != nil {
+				errorMsg := NewToolMessage(
+					toolCall.ID,
+					toolCall.Function.Name,
+					fmt.Sprintf("Error: failed to serialize result - %v", err),
+				)
+				session.AddMessage(errorMsg)
+				toolCallsHandled++
+				continue
+			}
+
+			// Add successful tool result
+			toolMsg := NewToolMessage(
+				toolCall.ID,
+				toolCall.Function.Name,
+				string(resultJSON),
+			)
+			session.AddMessage(toolMsg)
+			toolCallsHandled++
+		}
+
+		// If all tool calls were handled, continue to next turn
+		if toolCallsHandled == len(response.ToolCalls) {
+			// Update messages for next iteration
+			messages = session.Messages()
+			// Insert system message again if it exists
+			if a.config.Instructions != "" {
+				systemMessage := NewSystemMessage(a.config.Instructions)
+				messages = append([]Message{systemMessage}, messages...)
+			}
+			continue
+		}
+
+		// If we couldn't handle some tool calls, return error
+		return nil, nil, fmt.Errorf("failed to handle %d tool calls", len(response.ToolCalls)-toolCallsHandled)
+	}
+
+	// If we've exhausted max turns, return the last response
+	messages = session.Messages()
+	if len(messages) > 0 {
+		lastMessage := &messages[len(messages)-1]
+		if lastMessage.Role == RoleAssistant {
+			return lastMessage, nil, fmt.Errorf("reached maximum turns (%d) without completion", maxTurns)
+		}
+	}
+
+	return nil, nil, fmt.Errorf("conversation ended unexpectedly after %d turns", maxTurns)
+}
+
+// NewInMemorySessionStore creates a new in-memory SessionStore implementation
+func NewInMemorySessionStore() SessionStore {
+	return &inMemoryStore{
+		sessions: make(map[string]Session),
+	}
+}
+
+// inMemoryStore implements SessionStore using in-memory storage
+type inMemoryStore struct {
+	sessions map[string]Session
+	mutex    sync.RWMutex
+}
+
+// Save persists a session in memory
+func (s *inMemoryStore) Save(ctx context.Context, session Session) error {
+	if session == nil {
+		return ErrInvalidSession
+	}
+
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	// Clone the session to prevent external modification
+	s.sessions[session.ID()] = session.Clone()
+	return nil
+}
+
+// Load retrieves a session from memory by ID
+func (s *inMemoryStore) Load(ctx context.Context, sessionID string) (Session, error) {
+	if sessionID == "" {
+		return nil, ErrInvalidSessionID
+	}
+
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	session, exists := s.sessions[sessionID]
+	if !exists {
+		return nil, ErrSessionNotFound
+	}
+
+	// Return a clone to prevent external modification
+	return session.Clone(), nil
+}
+
+// Delete removes a session from memory
+func (s *inMemoryStore) Delete(ctx context.Context, sessionID string) error {
+	if sessionID == "" {
+		return ErrInvalidSessionID
+	}
+
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if _, exists := s.sessions[sessionID]; !exists {
+		return ErrSessionNotFound
+	}
+
+	delete(s.sessions, sessionID)
+	return nil
+}
+
+// List returns all session IDs, optionally filtered
+func (s *inMemoryStore) List(ctx context.Context, filter SessionFilter) ([]string, error) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	var sessionIDs []string
+	for id := range s.sessions {
+		sessionIDs = append(sessionIDs, id)
+	}
+	return sessionIDs, nil
+}
+
+// Exists checks if a session exists
+func (s *inMemoryStore) Exists(ctx context.Context, sessionID string) (bool, error) {
+	if sessionID == "" {
+		return false, ErrInvalidSessionID
+	}
+
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	_, exists := s.sessions[sessionID]
+	return exists, nil
+}
+
+// NewSession creates a new session with the given ID
+func NewSession(id string) Session {
+	now := time.Now()
+	return &simpleSession{
+		id:        id,
+		messages:  make([]Message, 0),
+		createdAt: now,
+		updatedAt: now,
+	}
+}
+
+// NewStructuredOutputType creates an OutputType from a struct example
+func NewStructuredOutputType(example any) OutputType {
+	return &simpleOutputType{example: example}
+}
+
+// simpleSession implements the Session interface
+type simpleSession struct {
+	id        string
+	messages  []Message
+	createdAt time.Time
+	updatedAt time.Time
+}
+
+// ID returns the session identifier
+func (s *simpleSession) ID() string {
+	return s.id
+}
+
+// Messages returns all messages in the session
+func (s *simpleSession) Messages() []Message {
+	return s.messages
+}
+
+// AddMessage adds a message to the session
+func (s *simpleSession) AddMessage(msg Message) {
+	s.messages = append(s.messages, msg)
+	s.updatedAt = time.Now()
+}
+
+// AddUserMessage adds a user message to the session
+func (s *simpleSession) AddUserMessage(content string) {
+	msg := Message{
+		Role:      RoleUser,
+		Content:   content,
+		Timestamp: time.Now(),
+	}
+	s.AddMessage(msg)
+}
+
+// AddAssistantMessage adds an assistant message to the session
+func (s *simpleSession) AddAssistantMessage(content string) {
+	msg := Message{
+		Role:      RoleAssistant,
+		Content:   content,
+		Timestamp: time.Now(),
+	}
+	s.AddMessage(msg)
+}
+
+// AddSystemMessage adds a system message to the session
+func (s *simpleSession) AddSystemMessage(content string) {
+	msg := Message{
+		Role:      RoleSystem,
+		Content:   content,
+		Timestamp: time.Now(),
+	}
+	s.AddMessage(msg)
+}
+
+// AddToolMessage adds a tool response message to the session
+func (s *simpleSession) AddToolMessage(toolCallID, toolName, content string) {
+	msg := Message{
+		Role:       RoleTool,
+		Content:    content,
+		ToolCallID: toolCallID,
+		Name:       toolName,
+		Timestamp:  time.Now(),
+	}
+	s.AddMessage(msg)
+}
+
+// CreatedAt returns when the session was created
+func (s *simpleSession) CreatedAt() time.Time {
+	return s.createdAt
+}
+
+// UpdatedAt returns when the session was last updated
+func (s *simpleSession) UpdatedAt() time.Time {
+	return s.updatedAt
+}
+
+// Clear removes all messages from the session
+func (s *simpleSession) Clear() {
+	s.messages = make([]Message, 0)
+	s.updatedAt = time.Now()
+}
+
+// Clone creates a copy of the session
+func (s *simpleSession) Clone() Session {
+	clone := &simpleSession{
+		id:        s.id,
+		messages:  make([]Message, len(s.messages)),
+		createdAt: s.createdAt,
+		updatedAt: s.updatedAt,
+	}
+	copy(clone.messages, s.messages)
+	return clone
+}
+
+// simpleOutputType implements OutputType for structured output
+type simpleOutputType struct {
+	example any
+}
+
+func (s *simpleOutputType) Name() string {
+	t := reflect.TypeOf(s.example)
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	return t.Name()
+}
+
+func (s *simpleOutputType) Description() string {
+	return fmt.Sprintf("Structured output type for %s", s.Name())
+}
+
+func (s *simpleOutputType) Schema() map[string]any {
+	// Generate basic JSON schema from struct
+	t := reflect.TypeOf(s.example)
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+
+	schema := map[string]any{
+		"type":       "object",
+		"properties": make(map[string]any),
+	}
+
+	properties := schema["properties"].(map[string]any)
+
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		jsonTag := field.Tag.Get("json")
+		if jsonTag == "" || jsonTag == "-" {
+			continue
+		}
+
+		// Parse json tag
+		parts := strings.Split(jsonTag, ",")
+		fieldName := parts[0]
+
+		// Determine field type
+		fieldType := "string" // Default
+		switch field.Type.Kind() {
+		case reflect.String:
+			fieldType = "string"
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			fieldType = "integer"
+		case reflect.Float32, reflect.Float64:
+			fieldType = "number"
+		case reflect.Bool:
+			fieldType = "boolean"
+		case reflect.Slice, reflect.Array:
+			fieldType = "array"
+		case reflect.Map, reflect.Struct:
+			fieldType = "object"
+		}
+
+		properties[fieldName] = map[string]any{
+			"type": fieldType,
+		}
+	}
+
+	return schema
+}
+
+func (s *simpleOutputType) NewInstance() any {
+	t := reflect.TypeOf(s.example)
+	if t.Kind() == reflect.Ptr {
+		return reflect.New(t.Elem()).Interface()
+	}
+	return reflect.New(t).Interface()
+}
+
+func (s *simpleOutputType) Validate(data any) error {
+	// Basic validation - check if types match
+	expectedType := reflect.TypeOf(s.example)
+	actualType := reflect.TypeOf(data)
+
+	if expectedType != actualType {
+		return fmt.Errorf("type mismatch: expected %v, got %v", expectedType, actualType)
 	}
 
 	return nil
 }
 
-// NewInMemorySessionStore creates a new in-memory SessionStore implementation
-func NewInMemorySessionStore() SessionStore {
-	return newInMemoryStore()
+// =====================================================
+// Simplified Agent API (formerly in pkg/goagent)
+// =====================================================
+
+// SimpleAgent represents a simplified AI agent with elegant API
+type SimpleAgent interface {
+	// Chat performs a conversation turn with the agent
+	Chat(ctx context.Context, input string, opts ...ChatOption) (*Response, error)
 }
+
+// Response contains the agent's response and metadata
+type Response struct {
+	Message  string                 // The text response from the agent
+	Data     any                    // Structured output if configured
+	Session  Session                // Conversation session
+	Metadata map[string]interface{} // Additional metadata
+}
+
+// ChatOption allows customizing individual chat requests
+type ChatOption func(*chatConfig)
+
+type chatConfig struct {
+	sessionID string
+	variables map[string]interface{}
+}
+
+// WithSession specifies a session ID for the conversation
+func WithSession(sessionID string) ChatOption {
+	return func(c *chatConfig) {
+		c.sessionID = sessionID
+	}
+}
+
+// WithVariables provides variables for template substitution
+func WithVariables(vars map[string]interface{}) ChatOption {
+	return func(c *chatConfig) {
+		c.variables = vars
+	}
+}
+
+// simpleAgentImpl is the internal implementation of the simplified Agent
+type simpleAgentImpl struct {
+	name         string
+	coreAgent    Agent
+	sessionStore SessionStore
+	options      *agentOptions
+}
+
+// agentOptions holds all configuration for an agent
+type agentOptions struct {
+	// Basic configuration
+	description  string
+	instructions string
+	model        string
+	modelSettings *ModelSettings
+	
+	// Provider configuration
+	provider     string
+	apiKey       string
+	customModel  ChatModel
+	
+	// Tools and capabilities
+	tools      []Tool
+	outputType OutputType
+	
+	// Flow rules and conditions
+	flowRules []FlowRule
+	
+	// Runtime configuration
+	sessionStore SessionStore
+	maxTurns     int
+	toolTimeout  time.Duration
+}
+
+// Chat implements the simplified chat interface
+func (a *simpleAgentImpl) Chat(ctx context.Context, input string, opts ...ChatOption) (*Response, error) {
+	// Apply chat options
+	cfg := &chatConfig{
+		sessionID: fmt.Sprintf("session-%d", timeNow().Unix()),
+		variables: make(map[string]interface{}),
+	}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	// Load or create session
+	session, err := a.sessionStore.Load(ctx, cfg.sessionID)
+	if err != nil {
+		// Create new session if not found
+		session = NewSession(cfg.sessionID)
+	}
+
+	// Execute the agent directly
+	message, data, err := a.coreAgent.Chat(ctx, session, input)
+	if err != nil {
+		return nil, fmt.Errorf("agent execution failed: %w", err)
+	}
+
+	// Save session after chat
+	if err := a.sessionStore.Save(ctx, session); err != nil {
+		// Log but don't fail on save error
+		// Could add proper logging here
+	}
+
+	// Build response
+	response := &Response{
+		Message:  message.Content,
+		Data:     data,
+		Session:  session,
+		Metadata: make(map[string]interface{}),
+	}
+
+	// Add execution metadata
+	response.Metadata["model"] = a.options.model
+	response.Metadata["tools_used"] = len(message.ToolCalls)
+	response.Metadata["timestamp"] = timeNow()
+
+	return response, nil
+}
+
+// timeNow is a variable to allow mocking in tests
+var timeNow = time.Now
+
+// buildContextualPrompt creates a context summary for AskAI prompts
+func buildContextualPrompt(session Session, currentInput string) string {
+	messages := session.Messages()
+	messageCount := len(messages)
+	
+	// Basic context
+	context := fmt.Sprintf("User has sent %d messages in this conversation", messageCount)
+	
+	// Add recent message context (last 2 messages for brevity)
+	if messageCount > 0 {
+		recentMessages := messages
+		if messageCount > 2 {
+			recentMessages = messages[messageCount-2:]
+		}
+		
+		context += ". Recent messages: "
+		for _, msg := range recentMessages {
+			if msg.Role == RoleUser || msg.Role == RoleAssistant {
+				context += fmt.Sprintf("[%s: %s] ", msg.Role, msg.Content)
+			}
+		}
+	}
+	
+	// Add current input
+	context += fmt.Sprintf("Current user input: '%s'", currentInput)
+	
+	return context
+}
+
+// =====================================================
+// Builder API for Simplified Agent Creation
+// =====================================================
+
+// Builder provides a fluent interface for creating agents
+type Builder struct {
+	name    string
+	options *agentOptions
+	err     error
+}
+
+// New creates a new agent builder with the given name
+func New(name string) *Builder {
+	return &Builder{
+		name: name,
+		options: &agentOptions{
+			model:        "gpt-4o-mini",
+			maxTurns:     10,
+			toolTimeout:  30 * time.Second,
+			provider:     "openai",
+			modelSettings: &ModelSettings{
+				Temperature: floatPtr(0.7),
+				MaxTokens:   intPtr(1000),
+			},
+		},
+	}
+}
+
+// WithDescription sets the agent's description
+func (b *Builder) WithDescription(description string) *Builder {
+	if b.err != nil {
+		return b
+	}
+	b.options.description = description
+	return b
+}
+
+// WithInstructions sets the agent's system instructions
+func (b *Builder) WithInstructions(instructions string) *Builder {
+	if b.err != nil {
+		return b
+	}
+	b.options.instructions = instructions
+	return b
+}
+
+// WithModel sets the model to use (e.g., "gpt-4", "gpt-3.5-turbo")
+func (b *Builder) WithModel(model string) *Builder {
+	if b.err != nil {
+		return b
+	}
+	b.options.model = model
+	return b
+}
+
+// WithTemperature sets the model temperature
+func (b *Builder) WithTemperature(temp float64) *Builder {
+	if b.err != nil {
+		return b
+	}
+	b.options.modelSettings.Temperature = &temp
+	return b
+}
+
+// WithMaxTokens sets the maximum tokens for responses
+func (b *Builder) WithMaxTokens(tokens int) *Builder {
+	if b.err != nil {
+		return b
+	}
+	b.options.modelSettings.MaxTokens = &tokens
+	return b
+}
+
+// WithOpenAI configures the agent to use OpenAI
+func (b *Builder) WithOpenAI(apiKey string) *Builder {
+	if b.err != nil {
+		return b
+	}
+	b.options.provider = "openai"
+	b.options.apiKey = apiKey
+	return b
+}
+
+// WithChatModel sets a custom chat model implementation
+func (b *Builder) WithChatModel(model ChatModel) *Builder {
+	if b.err != nil {
+		return b
+	}
+	b.options.customModel = model
+	b.options.provider = "custom"
+	return b
+}
+
+// WithTool adds a tool to the agent
+func (b *Builder) WithTool(tool Tool) *Builder {
+	if b.err != nil {
+		return b
+	}
+	b.options.tools = append(b.options.tools, tool)
+	return b
+}
+
+// WithTools adds multiple tools to the agent
+func (b *Builder) WithTools(tools ...Tool) *Builder {
+	if b.err != nil {
+		return b
+	}
+	b.options.tools = append(b.options.tools, tools...)
+	return b
+}
+
+// WithOutputType sets the structured output type
+func (b *Builder) WithOutputType(outputType OutputType) *Builder {
+	if b.err != nil {
+		return b
+	}
+	b.options.outputType = outputType
+	return b
+}
+
+// WithSessionStore sets a custom session store
+func (b *Builder) WithSessionStore(store SessionStore) *Builder {
+	if b.err != nil {
+		return b
+	}
+	b.options.sessionStore = store
+	return b
+}
+
+// WithMaxTurns sets the maximum conversation turns
+func (b *Builder) WithMaxTurns(turns int) *Builder {
+	if b.err != nil {
+		return b
+	}
+	b.options.maxTurns = turns
+	return b
+}
+
+// WithToolTimeout sets the timeout for tool execution
+func (b *Builder) WithToolTimeout(timeout time.Duration) *Builder {
+	if b.err != nil {
+		return b
+	}
+	b.options.toolTimeout = timeout
+	return b
+}
+
+// When adds a condition-based flow rule
+func (b *Builder) When(condition interface{}) *AgentFlowRuleBuilder {
+	return &AgentFlowRuleBuilder{
+		agentBuilder: b,
+		condition:    condition,
+	}
+}
+
+// OnMissingInfo is a shorthand for common missing field conditions
+func (b *Builder) OnMissingInfo(fields ...string) *AgentFlowRuleBuilder {
+	return b.When(WhenMissingFields(fields...))
+}
+
+// OnMessageCount is a shorthand for message count conditions
+func (b *Builder) OnMessageCount(count int) *AgentFlowRuleBuilder {
+	return b.When(WhenMessageCount(count))
+}
+
+// Build creates the agent with all configurations
+func (b *Builder) Build() (SimpleAgent, error) {
+	if b.err != nil {
+		return nil, b.err
+	}
+
+	// Validate required fields
+	if b.name == "" {
+		return nil, fmt.Errorf("agent name is required")
+	}
+
+	// Set default instructions if not provided
+	if b.options.instructions == "" {
+		b.options.instructions = fmt.Sprintf("You are %s, a helpful AI assistant.", b.name)
+		if b.options.description != "" {
+			b.options.instructions += " " + b.options.description
+		}
+	}
+
+	// Create chat model based on provider
+	var chatModel ChatModel
+	var err error
+
+	switch b.options.provider {
+	case "openai":
+		if b.options.apiKey == "" {
+			return nil, fmt.Errorf("OpenAI API key is required")
+		}
+		chatModel, err = b.createOpenAIChatModel()
+		if err != nil {
+			return nil, fmt.Errorf("failed to create OpenAI chat model: %w", err)
+		}
+	case "custom":
+		if b.options.customModel == nil {
+			return nil, fmt.Errorf("custom chat model is required")
+		}
+		chatModel = b.options.customModel
+	default:
+		return nil, fmt.Errorf("unsupported provider: %s", b.options.provider)
+	}
+
+	// Create session store if not provided
+	if b.options.sessionStore == nil {
+		b.options.sessionStore = NewInMemorySessionStore()
+	}
+
+	// Create the core agent directly
+	coreAgent, err := NewBasicAgent(BasicAgentConfig{
+		Name:          b.name,
+		Description:   b.options.description,
+		Instructions:  b.options.instructions,
+		Model:         b.options.model,
+		ModelSettings: b.options.modelSettings,
+		Tools:         b.options.tools,
+		OutputType:    b.options.outputType,
+		FlowRules:     b.options.flowRules,
+		ChatModel:     chatModel,
+		SessionStore:  b.options.sessionStore,
+		MaxTurns:      b.options.maxTurns,
+		ToolTimeout:   b.options.toolTimeout,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create core agent: %w", err)
+	}
+
+	// Return the simplified agent
+	return &simpleAgentImpl{
+		name:         b.name,
+		coreAgent:    coreAgent,
+		sessionStore: b.options.sessionStore,
+		options:      b.options,
+	}, nil
+}
+
+// AgentFlowRuleBuilder provides fluent interface for creating flow rules for agents
+type AgentFlowRuleBuilder struct {
+	agentBuilder *Builder
+	condition    interface{}
+	actions      []flowAction
+}
+
+type flowAction struct {
+	actionType string
+	data       interface{}
+}
+
+// Ask sets the agent to ask for specific information
+func (f *AgentFlowRuleBuilder) Ask(message string) *AgentFlowRuleBuilder {
+	f.actions = append(f.actions, flowAction{
+		actionType: "ask",
+		data:       message,
+	})
+	return f
+}
+
+// AskAI sets the agent to use LLM to generate a contextual response
+func (f *AgentFlowRuleBuilder) AskAI(instruction string) *AgentFlowRuleBuilder {
+	f.actions = append(f.actions, flowAction{
+		actionType: "ask_ai",
+		data:       instruction,
+	})
+	return f
+}
+
+// OrElse sets a fallback message if AskAI fails
+func (f *AgentFlowRuleBuilder) OrElse(fallbackMessage string) *AgentFlowRuleBuilder {
+	f.actions = append(f.actions, flowAction{
+		actionType: "fallback",
+		data:       fallbackMessage,
+	})
+	return f
+}
+
+// UseTemplate applies a new instruction template
+func (f *AgentFlowRuleBuilder) UseTemplate(template string) *AgentFlowRuleBuilder {
+	f.actions = append(f.actions, flowAction{
+		actionType: "template",
+		data:       template,
+	})
+	return f
+}
+
+// EnableTools recommends specific tools for the next turn
+func (f *AgentFlowRuleBuilder) EnableTools(toolNames ...string) *AgentFlowRuleBuilder {
+	f.actions = append(f.actions, flowAction{
+		actionType: "tools",
+		data:       toolNames,
+	})
+	return f
+}
+
+// Summarize requests a summary of the conversation
+func (f *AgentFlowRuleBuilder) Summarize() *AgentFlowRuleBuilder {
+	f.actions = append(f.actions, flowAction{
+		actionType: "summarize",
+		data:       "Please provide a summary of our conversation so far.",
+	})
+	return f
+}
+
+// Escalate marks the conversation for escalation
+func (f *AgentFlowRuleBuilder) Escalate(reason string) *AgentFlowRuleBuilder {
+	f.actions = append(f.actions, flowAction{
+		actionType: "escalate",
+		data:       reason,
+	})
+	return f
+}
+
+// OutputJSON sets the expected structured output type
+func (f *AgentFlowRuleBuilder) OutputJSON(outputType OutputType) *AgentFlowRuleBuilder {
+	f.actions = append(f.actions, flowAction{
+		actionType: "output",
+		data:       outputType,
+	})
+	return f
+}
+
+// And allows chaining with additional conditions
+func (f *AgentFlowRuleBuilder) And(condition interface{}) *AgentFlowRuleBuilder {
+	// Convert existing condition to Condition if needed
+	existingCond := f.convertCondition(f.condition)
+	newCond := f.convertCondition(condition)
+	
+	f.condition = And(existingCond, newCond)
+	return f
+}
+
+// Or allows chaining with alternative conditions
+func (f *AgentFlowRuleBuilder) Or(condition interface{}) *AgentFlowRuleBuilder {
+	// Convert existing condition to Condition if needed
+	existingCond := f.convertCondition(f.condition)
+	newCond := f.convertCondition(condition)
+	
+	f.condition = Or(existingCond, newCond)
+	return f
+}
+
+// Build adds the flow rule to the agent and returns the builder
+func (f *AgentFlowRuleBuilder) Build() *Builder {
+	if f.agentBuilder.err != nil {
+		return f.agentBuilder
+	}
+
+	// Convert condition to Condition
+	condition := f.convertCondition(f.condition)
+	if condition == nil {
+		f.agentBuilder.err = fmt.Errorf("invalid condition provided")
+		return f.agentBuilder
+	}
+
+	// Create flow action from accumulated actions
+	var flowAction FlowAction
+	
+	// Apply actions in order
+	for _, action := range f.actions {
+		switch action.actionType {
+		case "ask":
+			if msg, ok := action.data.(string); ok {
+				flowAction.DirectResponse = msg
+			}
+		case "ask_ai":
+			if instruction, ok := action.data.(string); ok {
+				flowAction.AIPrompt = instruction
+			}
+		case "fallback":
+			if fallback, ok := action.data.(string); ok {
+				flowAction.FallbackResponse = fallback
+			}
+		case "template":
+			if template, ok := action.data.(string); ok {
+				flowAction.NewInstructionsTemplate = template
+			}
+		case "tools":
+			if tools, ok := action.data.([]string); ok {
+				flowAction.RecommendedToolNames = tools
+			}
+		case "summarize":
+			flowAction.NewInstructionsTemplate = action.data.(string)
+		case "escalate":
+			flowAction.TriggerNotification = true
+			flowAction.NotificationDetails = map[string]interface{}{
+				"reason": action.data,
+				"type":   "escalation",
+			}
+		case "output":
+			// This would need to be handled at agent level
+			f.agentBuilder.options.outputType = action.data.(OutputType)
+		}
+	}
+
+	// Create the flow rule
+	ruleName := fmt.Sprintf("rule_%s", condition.Name())
+	rule := NewFlowRule(ruleName, condition).
+		WithNewInstructions(flowAction.NewInstructionsTemplate).
+		WithRecommendedTools(flowAction.RecommendedToolNames...).
+		Build()
+
+	// Add to agent's flow rules
+	f.agentBuilder.options.flowRules = append(f.agentBuilder.options.flowRules, rule)
+	
+	return f.agentBuilder
+}
+
+// convertCondition converts various condition formats to Condition
+func (f *AgentFlowRuleBuilder) convertCondition(condition interface{}) Condition {
+	switch c := condition.(type) {
+	case Condition:
+		return c
+	case string:
+		// Parse string conditions like "email missing", "phone missing", etc.
+		return f.parseStringCondition(c)
+	case func(Session) bool:
+		return WhenFunc("custom", c)
+	default:
+		return nil
+	}
+}
+
+// parseStringCondition parses natural language condition strings
+func (f *AgentFlowRuleBuilder) parseStringCondition(condition string) Condition {
+	// Simple parsing for common patterns
+	switch {
+	case strings.Contains(condition, "missing"):
+		// Extract field name from "field missing" pattern
+		field := extractFieldName(condition)
+		if field != "" {
+			return WhenMissingFields(field)
+		}
+	case strings.Contains(condition, "contains"):
+		// Extract text from "contains text" pattern
+		text := extractContainsText(condition)
+		if text != "" {
+			return WhenContains(text)
+		}
+	}
+	
+	// Fallback: create a simple contains condition
+	return WhenContains(condition)
+}
+
+// Helper functions for string parsing
+func extractFieldName(condition string) string {
+	// Simple extraction: get word before "missing"
+	parts := strings.Fields(condition)
+	for i, part := range parts {
+		if part == "missing" && i > 0 {
+			return parts[i-1]
+		}
+	}
+	return ""
+}
+
+func extractContainsText(condition string) string {
+	// Simple extraction: get text after "contains"
+	parts := strings.Fields(condition)
+	for i, part := range parts {
+		if part == "contains" && i < len(parts)-1 {
+			return parts[i+1]
+		}
+	}
+	return ""
+}
+
+// Helper functions
+func floatPtr(f float64) *float64 { return &f }
+func intPtr(i int) *int { return &i }
