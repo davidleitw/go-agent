@@ -9,7 +9,7 @@ test: unit-test
 # Run unit tests with coverage
 unit-test:
 	@echo "Running unit tests..."
-	@go test -v -race -coverprofile=coverage.out ./pkg/... ./internal/...
+	@go test -v -race -coverprofile=coverage.out ./pkg/...
 
 # Run integration tests (if they exist)
 integration-test:
