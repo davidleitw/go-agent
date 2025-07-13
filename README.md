@@ -332,6 +332,78 @@ go run main.go
 - `power`: Exponentiation (2^8)
 - `sqrt`: Square root (√64)
 
+---
+
+#### 4. **Multi-Tool Agent** (`cmd/examples/multi-tool-agent/`)
+Advanced AI assistant demonstrating intelligent tool selection and multi-tool coordination.
+
+**Features**:
+- **Context-Aware Tool Selection**: Agent automatically chooses appropriate tools
+- **Multiple Tool Integration**: Weather, calculator, time, and notification tools
+- **Sequential Tool Usage**: Agent can use multiple tools in sequence for complex requests
+- **Real-world Scenarios**: Practical examples of multi-tool interactions
+
+**Available Tools**:
+- 🌤️ **Weather Tool**: Get weather information for any location
+- 🧮 **Calculator Tool**: Perform mathematical calculations
+- ⏰ **Time Tool**: Get current time in different timezones
+- 📢 **Notification Tool**: Send notifications and reminders
+
+**Run the example**:
+```bash
+cd cmd/examples/multi-tool-agent
+go run main.go
+```
+
+**What it demonstrates**:
+- Context-aware tool selection based on user input
+- Multi-tool coordination for complex requests
+- Tool combination scenarios (e.g., "What's the weather in London and what time is it there?")
+- Error handling across multiple tools
+- Comprehensive logging of tool orchestration
+
+**Test Scenarios**:
+- Single tool usage: Weather queries, calculations, time requests
+- Multi-tool combinations: Weather + time, calculations + weather
+- Complex workflows: Time queries with scheduled notifications
+
+---
+
+#### 5. **Condition Testing** (`cmd/examples/condition-testing/`)
+Comprehensive testing of condition types and flow rule implementation using a user onboarding scenario.
+
+**Features**:
+- **Multiple Condition Types**: Missing fields, completion stages, message counts
+- **Flow Rule Orchestration**: Dynamic agent behavior modification
+- **Custom Condition Implementation**: Domain-specific conditional logic
+- **Structured Output Integration**: Conditions working with structured data
+- **Dynamic Instruction Updates**: Real-time instruction modification based on conditions
+
+**Condition Types Tested**:
+- 🎯 **Missing Fields Condition**: Checks for absent data fields
+- 📋 **Completion Stage Condition**: Validates current process stage
+- 💬 **Message Count Condition**: Triggers based on conversation length
+- 🔍 **Data Key Exists Condition**: Built-in framework condition testing
+
+**Run the example**:
+```bash
+cd cmd/examples/condition-testing
+go run main.go
+```
+
+**What it demonstrates**:
+- Custom condition implementation and evaluation logic
+- Flow rule configuration and trigger scenarios
+- Structured output with conditional validation
+- Dynamic conversation flow based on user state
+- Comprehensive condition testing across multiple scenarios
+
+**Onboarding Flow**:
+- Basic information collection (name)
+- Contact details gathering (email, phone)
+- Preferences collection (interests, hobbies)
+- Completion validation and confirmation
+
 ### 🔧 Troubleshooting
 
 All examples include detailed logging to help you understand the execution flow:
