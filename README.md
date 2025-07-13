@@ -8,6 +8,18 @@
 
 A lightweight Go AI agent framework focused on building intelligent conversations and automated workflows.
 
+> ⚠️ **Early Development Stage**: This framework is currently in early development. APIs may change frequently as we refine the interfaces based on user feedback. We plan to stabilize the API after the v0.1.0 release. Use with caution in production environments.
+
+## Development Status
+
+**Current Stage**: Early Development (Pre-v0.1.0)
+- ✅ Core functionality implemented and tested
+- ⚠️ APIs may change based on user feedback
+- 🔄 Interface optimization ongoing
+- 📋 Planned API stabilization after v0.1.0
+
+We welcome feedback and suggestions as we work toward a stable release.
+
 ## Why choose go-agent
 
 go-agent provides intuitive interfaces for building AI applications. The framework focuses on minimal configuration: provide an API key, create an agent, and start conversing.
