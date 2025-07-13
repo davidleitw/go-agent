@@ -15,22 +15,22 @@ type OutputType interface {
 	Description() string
 
 	// Schema returns the JSON Schema for this output type
-	Schema() map[string]interface{}
+	Schema() map[string]any
 
 	// NewInstance returns a new, empty instance for deserialization
-	NewInstance() interface{}
+	NewInstance() any
 
 	// Validate validates that the given data matches this output type
-	Validate(data interface{}) error
+	Validate(data any) error
 }
 
 // OutputTypeBuilder provides a fluent API for creating OutputType instances
 type OutputTypeBuilder struct {
 	name        string
 	description string
-	schema      map[string]interface{}
-	example     interface{}
-	validator   func(interface{}) error
+	schema      map[string]any
+	example     any
+	validator   func(any) error
 	typeInfo    reflect.Type
 	err         error
 }
@@ -55,7 +55,7 @@ func (b *OutputTypeBuilder) WithDescription(description string) *OutputTypeBuild
 }
 
 // WithSchema sets the JSON Schema for this output type
-func (b *OutputTypeBuilder) WithSchema(schema map[string]interface{}) *OutputTypeBuilder {
+func (b *OutputTypeBuilder) WithSchema(schema map[string]any) *OutputTypeBuilder {
 	if b.err != nil {
 		return b
 	}
@@ -69,7 +69,7 @@ func (b *OutputTypeBuilder) WithSchema(schema map[string]interface{}) *OutputTyp
 
 // WithExample sets an example instance for this output type
 // The schema will be automatically generated from the struct if not already set
-func (b *OutputTypeBuilder) WithExample(example interface{}) *OutputTypeBuilder {
+func (b *OutputTypeBuilder) WithExample(example any) *OutputTypeBuilder {
 	if b.err != nil {
 		return b
 	}
@@ -95,7 +95,7 @@ func (b *OutputTypeBuilder) WithExample(example interface{}) *OutputTypeBuilder 
 }
 
 // WithValidator sets a custom validation function
-func (b *OutputTypeBuilder) WithValidator(validator func(interface{}) error) *OutputTypeBuilder {
+func (b *OutputTypeBuilder) WithValidator(validator func(any) error) *OutputTypeBuilder {
 	if b.err != nil {
 		return b
 	}
@@ -132,33 +132,33 @@ func (b *OutputTypeBuilder) Build() (OutputType, error) {
 var outputTypeFactory func(
 	name string,
 	description string,
-	schema map[string]interface{},
-	example interface{},
+	schema map[string]any,
+	example any,
 	typeInfo reflect.Type,
-	validator func(interface{}) error,
+	validator func(any) error,
 ) (OutputType, error)
 
 // SetOutputTypeFactory is used by internal packages to register the output type factory
 func SetOutputTypeFactory(factory func(
 	name string,
 	description string,
-	schema map[string]interface{},
-	example interface{},
+	schema map[string]any,
+	example any,
 	typeInfo reflect.Type,
-	validator func(interface{}) error,
+	validator func(any) error,
 ) (OutputType, error)) {
 	outputTypeFactory = factory
 }
 
 // StructuredOutput is a convenience function that creates an OutputType from a struct instance
-func StructuredOutput(name string, example interface{}) (OutputType, error) {
+func StructuredOutput(name string, example any) (OutputType, error) {
 	return NewOutputType(name).
 		WithExample(example).
 		Build()
 }
 
 // generateSchemaFromStruct generates a JSON Schema from a Go struct type
-func generateSchemaFromStruct(t reflect.Type) (map[string]interface{}, error) {
+func generateSchemaFromStruct(t reflect.Type) (map[string]any, error) {
 	// Dereference pointer types
 	for t.Kind() == reflect.Ptr {
 		t = t.Elem()
@@ -168,13 +168,13 @@ func generateSchemaFromStruct(t reflect.Type) (map[string]interface{}, error) {
 		return nil, fmt.Errorf("expected struct type, got %s", t.Kind())
 	}
 
-	schema := map[string]interface{}{
+	schema := map[string]any{
 		"type":       "object",
-		"properties": make(map[string]interface{}),
+		"properties": make(map[string]any),
 	}
 
 	var required []string
-	properties := schema["properties"].(map[string]interface{})
+	properties := schema["properties"].(map[string]any)
 
 	for i := 0; i < t.NumField(); i++ {
 		field := t.Field(i)
@@ -221,13 +221,13 @@ func generateSchemaFromStruct(t reflect.Type) (map[string]interface{}, error) {
 }
 
 // generatePropertySchema generates a JSON Schema for a single property
-func generatePropertySchema(t reflect.Type, tag reflect.StructTag) (map[string]interface{}, error) {
+func generatePropertySchema(t reflect.Type, tag reflect.StructTag) (map[string]any, error) {
 	// Dereference pointer types
 	for t.Kind() == reflect.Ptr {
 		t = t.Elem()
 	}
 
-	schema := make(map[string]interface{})
+	schema := make(map[string]any)
 
 	switch t.Kind() {
 	case reflect.String:
@@ -236,7 +236,7 @@ func generatePropertySchema(t reflect.Type, tag reflect.StructTag) (map[string]i
 		// Check for enum values
 		if enumTag := tag.Get("enum"); enumTag != "" {
 			// Parse comma-separated enum values
-			var enumValues []interface{}
+			var enumValues []any
 			for _, val := range parseCommaSeparated(enumTag) {
 				enumValues = append(enumValues, val)
 			}
@@ -280,8 +280,8 @@ func generatePropertySchema(t reflect.Type, tag reflect.StructTag) (map[string]i
 		return structSchema, nil
 
 	case reflect.Interface:
-		// For interface{}, allow any type
-		schema = map[string]interface{}{}
+		// For any, allow any type
+		schema = map[string]any{}
 
 	default:
 		return nil, fmt.Errorf("unsupported type: %s", t.Kind())
@@ -384,14 +384,14 @@ func isSpace(c byte) bool {
 }
 
 // ValidateAgainstSchema validates data against a JSON Schema
-func ValidateAgainstSchema(data interface{}, schema map[string]interface{}) error {
+func ValidateAgainstSchema(data any, schema map[string]any) error {
 	// Convert data to JSON and back to ensure it's JSON-serializable
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("failed to marshal data to JSON: %w", err)
 	}
 
-	var unmarshaled interface{}
+	var unmarshaled any
 	if err := json.Unmarshal(jsonData, &unmarshaled); err != nil {
 		return fmt.Errorf("failed to unmarshal JSON data: %w", err)
 	}
@@ -400,7 +400,7 @@ func ValidateAgainstSchema(data interface{}, schema map[string]interface{}) erro
 }
 
 // validateValue validates a value against a schema
-func validateValue(value interface{}, schema map[string]interface{}) error {
+func validateValue(value any, schema map[string]any) error {
 	schemaType, ok := schema["type"].(string)
 	if !ok {
 		// If no type specified, validation passes
@@ -425,14 +425,14 @@ func validateValue(value interface{}, schema map[string]interface{}) error {
 	}
 }
 
-func validateObject(value interface{}, schema map[string]interface{}) error {
-	obj, ok := value.(map[string]interface{})
+func validateObject(value any, schema map[string]any) error {
+	obj, ok := value.(map[string]any)
 	if !ok {
 		return fmt.Errorf("expected object, got %T", value)
 	}
 
 	// Check required fields
-	if required, ok := schema["required"].([]interface{}); ok {
+	if required, ok := schema["required"].([]any); ok {
 		for _, field := range required {
 			fieldName, ok := field.(string)
 			if !ok {
@@ -445,10 +445,10 @@ func validateObject(value interface{}, schema map[string]interface{}) error {
 	}
 
 	// Validate properties
-	if properties, ok := schema["properties"].(map[string]interface{}); ok {
+	if properties, ok := schema["properties"].(map[string]any); ok {
 		for fieldName, fieldValue := range obj {
 			if propSchema, exists := properties[fieldName]; exists {
-				if propSchemaMap, ok := propSchema.(map[string]interface{}); ok {
+				if propSchemaMap, ok := propSchema.(map[string]any); ok {
 					if err := validateValue(fieldValue, propSchemaMap); err != nil {
 						return fmt.Errorf("field '%s': %w", fieldName, err)
 					}
@@ -460,14 +460,14 @@ func validateObject(value interface{}, schema map[string]interface{}) error {
 	return nil
 }
 
-func validateArray(value interface{}, schema map[string]interface{}) error {
-	arr, ok := value.([]interface{})
+func validateArray(value any, schema map[string]any) error {
+	arr, ok := value.([]any)
 	if !ok {
 		return fmt.Errorf("expected array, got %T", value)
 	}
 
 	// Validate items if schema is specified
-	if itemSchema, ok := schema["items"].(map[string]interface{}); ok {
+	if itemSchema, ok := schema["items"].(map[string]any); ok {
 		for i, item := range arr {
 			if err := validateValue(item, itemSchema); err != nil {
 				return fmt.Errorf("array item %d: %w", i, err)
@@ -478,14 +478,14 @@ func validateArray(value interface{}, schema map[string]interface{}) error {
 	return nil
 }
 
-func validateString(value interface{}, schema map[string]interface{}) error {
+func validateString(value any, schema map[string]any) error {
 	str, ok := value.(string)
 	if !ok {
 		return fmt.Errorf("expected string, got %T", value)
 	}
 
 	// Check enum values
-	if enum, ok := schema["enum"].([]interface{}); ok {
+	if enum, ok := schema["enum"].([]any); ok {
 		for _, enumValue := range enum {
 			if enumStr, ok := enumValue.(string); ok && enumStr == str {
 				return nil
@@ -497,7 +497,7 @@ func validateString(value interface{}, schema map[string]interface{}) error {
 	return nil
 }
 
-func validateNumber(value interface{}, schema map[string]interface{}) error {
+func validateNumber(value any, schema map[string]any) error {
 	switch value.(type) {
 	case float64, float32, int, int32, int64:
 		return nil
@@ -506,7 +506,7 @@ func validateNumber(value interface{}, schema map[string]interface{}) error {
 	}
 }
 
-func validateInteger(value interface{}, schema map[string]interface{}) error {
+func validateInteger(value any, schema map[string]any) error {
 	switch value.(type) {
 	case int, int32, int64, float64:
 		// JSON unmarshaling often produces float64 for integers
@@ -521,7 +521,7 @@ func validateInteger(value interface{}, schema map[string]interface{}) error {
 	}
 }
 
-func validateBoolean(value interface{}, schema map[string]interface{}) error {
+func validateBoolean(value any, schema map[string]any) error {
 	_, ok := value.(bool)
 	if !ok {
 		return fmt.Errorf("expected boolean, got %T", value)

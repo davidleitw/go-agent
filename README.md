@@ -4,30 +4,25 @@
   <img src="docs/images/gopher.png" alt="Go Agent" width="200" height="200">
 </div>
 
-[![English](https://img.shields.io/badge/README-English-blue.svg)](README.md) [![Chinese](https://img.shields.io/badge/README-Chinese-red.svg)](README-zh.md)
+[![English](https://img.shields.io/badge/README-English-blue.svg)](README.md) [![繁體中文](https://img.shields.io/badge/README-繁體中文-red.svg)](README-zh.md)
 
-A lightweight Go AI agent framework for building intelligent conversations and automated workflows with efficiency.
+A lightweight Go AI agent framework focused on building intelligent conversations and automated workflows.
 
-## Features
+## Why choose go-agent
 
-- 🚀 **Lightweight & Fast**: Minimal abstractions focused on core functionality
-- ⚡ **Functional Options**: Clean, intuitive APIs using Go's functional options pattern
-- 🔌 **Pluggable Architecture**: Support for multiple LLM providers and storage backends
-- 🛠️ **Tool Integration**: Easy integration of custom tools and function calling
-- 🔄 **Flow Control**: Dynamic conversation flow with conditional rules
-- 📝 **Structured Output**: Built-in support for validated JSON output
-- 💾 **Session Management**: Persistent conversation history for backend scenarios
-- 🧪 **Testing Support**: Comprehensive mocking and testing utilities
+Honestly, most AI frameworks out there are overly complex. What we really want is simple: give it an API key, create an agent, and start chatting. That's it.
+
+go-agent's design philosophy is simple: make common things super easy, and make complex things possible. You shouldn't need to write 60 lines of code to create a basic chatbot. You only need 5.
 
 ## Quick Start
 
-### Installation
+First, install go-agent:
 
 ```bash
 go get github.com/davidleitw/go-agent
 ```
 
-### Basic Usage
+Then write your first AI agent. Really, it's this simple:
 
 ```go
 package main
@@ -35,468 +30,228 @@ package main
 import (
     "context"
     "fmt"
-    "log"
     "os"
 
     "github.com/davidleitw/go-agent/pkg/agent"
-    "github.com/davidleitw/go-agent/pkg/openai"
 )
 
 func main() {
-    // Create OpenAI chat model
-    chatModel, err := openai.NewChatModel(os.Getenv("OPENAI_API_KEY"), nil)
+    // Create an AI agent in one line
+    assistant, err := agent.New("helpful-assistant").
+        WithOpenAI(os.Getenv("OPENAI_API_KEY")).
+        WithModel("gpt-4o-mini").
+        WithInstructions("You are a helpful assistant. Be concise and friendly.").
+        Build()
     if err != nil {
-        log.Fatal(err)
+        panic(err)
     }
 
-    // Create an agent with functional options
-    assistant, err := agent.New(
-        agent.WithName("helpful-assistant"),
-        agent.WithDescription("A helpful AI assistant"),
-        agent.WithInstructions("You are a helpful assistant. Be concise and friendly."),
-        agent.WithChatModel(chatModel),
-        agent.WithModel("gpt-4"),
-        agent.WithModelSettings(&agent.ModelSettings{
-            Temperature: floatPtr(0.7),
-            MaxTokens:   intPtr(1000),
-        }),
-        agent.WithSessionStore(agent.NewInMemorySessionStore()),
-    )
+    // Start chatting
+    response, err := assistant.Chat(context.Background(), "Hello! How are you today?")
     if err != nil {
-        log.Fatal(err)
+        panic(err)
     }
 
-    // Have a conversation - much simpler!
-    ctx := context.Background()
-    response, _, err := assistant.Chat(ctx, "session-1", "Hello! How are you?")
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    fmt.Println("Assistant:", response.Content)
+    fmt.Println("Assistant:", response.Message)
 }
-
-func floatPtr(f float64) *float64 { return &f }
-func intPtr(i int) *int { return &i }
 ```
 
-### With Tools
+See that? No need to manually create OpenAI clients, manage sessions, or deal with complex configuration structs. The framework handles all of this automatically.
+
+## Adding Tool Capabilities
+
+When your agent needs to perform actual operations, like checking weather or doing calculations, you need tools. Previously, defining a tool required writing a bunch of interface implementations. Now you just write a function:
 
 ```go
-// Define a custom tool
-type WeatherTool struct{}
+// Create a weather query tool using function definition
+weatherTool := agent.NewTool("get_weather", 
+    "Get weather information for a specified location",
+    func(location string) map[string]any {
+        // Simulate weather API call
+        return map[string]any{
+            "location":    location,
+            "temperature": "22°C",
+            "condition":   "Sunny",
+        }
+    })
 
-func (t *WeatherTool) Name() string {
-    return "get_weather"
-}
-
-func (t *WeatherTool) Description() string {
-    return "Get current weather for a location"
-}
-
-func (t *WeatherTool) Schema() map[string]interface{} {
-    return map[string]interface{}{
-        "type": "object",
-        "properties": map[string]interface{}{
-            "location": map[string]interface{}{
-                "type":        "string",
-                "description": "The city and state/country",
-            },
-        },
-        "required": []string{"location"},
-    }
-}
-
-func (t *WeatherTool) Execute(ctx context.Context, args map[string]interface{}) (interface{}, error) {
-    location := args["location"].(string)
-    // Simulate weather API call
-    return map[string]interface{}{
-        "location":    location,
-        "temperature": "22°C",
-        "condition":   "Sunny",
-    }, nil
-}
-
-// Create OpenAI chat model
-chatModel, err := openai.NewChatModel(os.Getenv("OPENAI_API_KEY"), nil)
-if err != nil {
-    log.Fatal(err)
-}
-
-// Create agent with tool - much cleaner!
-weatherAgent, err := agent.New(
-    agent.WithName("weather-assistant"),
-    agent.WithInstructions("You can help users get weather information."),
-    agent.WithChatModel(chatModel),
-    agent.WithModel("gpt-4"),
-    agent.WithTools(&WeatherTool{}),
-    agent.WithSessionStore(agent.NewInMemorySessionStore()),
-)
+// Create an agent with tool capabilities
+weatherAgent, err := agent.New("weather-assistant").
+    WithOpenAI(apiKey).
+    WithInstructions("You can help users get weather information.").
+    WithTools(weatherTool).
+    Build()
 ```
 
-### Structured Output
+The framework automatically generates JSON Schema from your functions, handles parameter validation, and manages the tool calling flow. You don't need to manually handle OpenAI's function calling format.
+
+## Structured Output
+
+Sometimes you want AI to respond with specific data formats, like JSON. The traditional approach is to pray in your prompt that AI returns the correct format, then manually parse it. Now you just define a struct and the framework handles everything else:
 
 ```go
-// Define output structure
+// Define your desired output format
 type TaskResult struct {
-    Title    string   `json:"title" validate:"required"`
-    Priority string   `json:"priority" validate:"required,oneof=low medium high"`
+    Title    string   `json:"title"`
+    Priority string   `json:"priority"`
     Tags     []string `json:"tags"`
 }
 
-// Create OpenAI chat model
-chatModel, err := openai.NewChatModel(os.Getenv("OPENAI_API_KEY"), nil)
-if err != nil {
-    log.Fatal(err)
-}
+// Create an agent that returns structured data
+taskAgent, err := agent.New("task-creator").
+    WithOpenAI(apiKey).
+    WithInstructions("Create tasks based on user input, return structured JSON data.").
+    WithOutputType(&TaskResult{}).
+    Build()
 
-// Create agent with structured output - much simpler!
-taskAgent, err := agent.New(
-    agent.WithName("task-creator"),
-    agent.WithInstructions("Create tasks based on user input. Return structured JSON."),
-    agent.WithChatModel(chatModel),
-    agent.WithModel("gpt-4"),
-    agent.WithStructuredOutput(&TaskResult{}), // Automatically generates schema
-    agent.WithSessionStore(agent.NewInMemorySessionStore()),
-)
-
-// The agent will automatically validate and parse the output
-response, structuredOutput, err := taskAgent.Chat(ctx, "session-1", "Create a high priority task for code review")
-if taskResult, ok := structuredOutput.(*TaskResult); ok {
+// Conversations automatically return parsed structures
+response, err := taskAgent.Chat(ctx, "Create a high priority code review task")
+if taskResult, ok := response.Data.(*TaskResult); ok {
     fmt.Printf("Created task: %s (Priority: %s)\n", taskResult.Title, taskResult.Priority)
 }
 ```
 
-### Flow Rules
+The framework automatically generates JSON Schema, validates AI output, and parses it into your Go struct. No more manual JSON parsing errors.
+
+## Intelligent Flow Control
+
+This is one of go-agent's most powerful features. You can make agents automatically adjust their behavior based on conversation state. For example, when user information is incomplete, automatically guide them to complete it:
 
 ```go
-// Create conditional flow rules
-missingInfoCondition := agent.NewDataKeyExistsCondition("missing_info_check", "missing_fields")
-
-flowRule, err := agent.NewFlowRule("collect-missing-info", missingInfoCondition).
-    WithDescription("Prompt user for missing information").
-    WithNewInstructions("Please ask the user for the following missing information: {{missing_fields}}").
-    WithRecommendedTools("collect_info").
-    WithSystemMessage("The user needs to provide additional information.").
+// Create an agent that automatically collects missing information
+onboardingAgent, err := agent.New("onboarding-specialist").
+    WithOpenAI(apiKey).
+    WithInstructions("You are an onboarding expert who needs to collect basic user information.").
+    
+    // When name is missing, automatically ask
+    OnMissingInfo("name").Ask("What's your name?").Build().
+    
+    // When email is missing, automatically ask
+    OnMissingInfo("email").Ask("Please provide your email address.").Build().
+    
+    // When conversation gets too long, automatically summarize
+    OnMessageCount(6).Summarize().Build().
+    
+    // When user says "help", provide assistance
+    When(agent.WhenContains("help")).Ask("How can I help you?").Build().
+    
+    // Complex condition combinations: when multiple information is missing
+    When(agent.And(
+        agent.WhenMissingFields("email"),
+        agent.WhenMissingFields("phone"),
+    )).Ask("I need both your email and phone number to proceed.").Build().
+    
     Build()
-
-// Create OpenAI chat model
-chatModel, err := openai.NewChatModel(os.Getenv("OPENAI_API_KEY"), nil)
-if err != nil {
-    log.Fatal(err)
-}
-
-// Create agent with flow rules
-smartAgent, err := agent.New(
-    agent.WithName("smart-assistant"),
-    agent.WithInstructions("You are a smart assistant that adapts based on context."),
-    agent.WithChatModel(chatModel),
-    agent.WithModel("gpt-4"),
-    agent.WithFlowRules(flowRule),
-    agent.WithSessionStore(agent.NewInMemorySessionStore()),
-)
 ```
 
-## Architecture
+These conditions are automatically checked during each conversation, making your agent smarter and more human-like. No need to write a bunch of if-else statements in your code.
 
-The framework is designed with clean separation of concerns:
+## Core Design Philosophy
 
-- **`pkg/agent/`**: Core interfaces, implementations, and public APIs
-- **`pkg/openai/`**: OpenAI ChatModel implementation
+We had several core principles when designing go-agent:
 
-### Core Components
+**Make simple things super simple**: Creating a basic chatbot shouldn't require reading documentation. The API should be intuitive enough that you know how to use it at first glance.
 
-1. **Agent**: Complete AI agent with configuration and execution capabilities
-2. **Session**: Conversation history and state management for backend scenarios
-3. **Tools**: External capabilities that agents can use
-4. **Flow Rules**: Dynamic behavior control based on conditions
-5. **Chat Models**: Abstraction for different LLM providers
-6. **Storage**: Pluggable session persistence backends
+**Make complex things possible**: When you need advanced features like multi-tool coordination, conditional flows, structured output, the framework should provide powerful abstractions instead of making you reinvent the wheel.
+
+**Automated default behavior**: Infrastructure like session management, tool calling loops, error handling should work correctly by default without manual management.
+
+### Architecture Components
+
+The framework consists of several main parts:
+
+**Agent**: The brain of your AI assistant, responsible for handling conversation logic. We provide `agent.New()` for quick creation while preserving full interfaces for customization.
+
+**Session**: Automatically manages conversation history. You don't need to manually track messages; the framework handles it.
+
+**Tools**: Capabilities that allow agents to perform actual operations. Use `agent.NewTool()` to quickly turn any function into a tool.
+
+**Conditions**: The core of intelligent flow control. Define complex conversation logic with natural language style APIs.
+
+**Chat Models**: Abstraction for different LLM providers. Currently supports OpenAI, with more coming soon.
 
 ## Supported LLM Providers
 
-- ✅ **OpenAI** (GPT-4, GPT-3.5-turbo, etc.)
-- 🔜 **Anthropic** (Claude 3.5 Sonnet, etc.)
-- 🔜 **Google** (Gemini)
-- 🔜 **Local models** (via Ollama)
+Currently mainly supports OpenAI models, including GPT-4, GPT-4o, GPT-3.5-turbo, etc. We're actively developing support for other providers:
 
-## Storage Backends
+**Supported**: OpenAI (full support, including function calling and structured output)
 
-- ✅ **In-Memory**: For development and testing
-- 🔜 **Redis**: For production distributed systems
-- 🔜 **PostgreSQL**: For advanced querying and analytics
+**In Development**: Anthropic Claude, Google Gemini, local models (via Ollama)
+
+## Session Storage
+
+The framework comes with in-memory session storage, suitable for development and testing. For production environments, we're developing Redis and PostgreSQL backend support.
+
+Honestly though, for most applications, in-memory storage is sufficient. You can always implement your own storage backend.
 
 ## Examples
 
-See the [`cmd/examples/`](./cmd/examples/) directory for complete working examples. Each example is a standalone Go program that demonstrates specific features of the go-agent framework.
+We've prepared complete examples in the [`examples/`](./examples/) directory, each is a directly executable Go program.
 
-### 🚀 Quick Setup
+### Quick Setup
 
-1. **Configure your OpenAI API key**:
-   ```bash
-   # Copy the example environment file
-   cp .env.example .env
-   
-   # Edit .env and add your OpenAI API key
-   # OPENAI_API_KEY=your_openai_api_key_here
-   ```
+First, set up your OpenAI API key:
 
-2. **Install dependencies** (for examples):
-   ```bash
-   go mod download
-   ```
-
-### 📋 Available Examples
-
-#### 1. **Basic Chat** (`cmd/examples/basic-chat/`)
-Simple conversational AI demonstrating core framework usage.
-
-**Features**:
-- Environment variable configuration (.env support)
-- Basic agent creation with functional options
-- Simple conversation flow
-- Detailed logging for troubleshooting
-
-**Run the example**:
 ```bash
-cd cmd/examples/basic-chat
-go run main.go
+# Copy the example environment file
+cp .env.example .env
+
+# Edit .env and add your OpenAI API key
 ```
 
-**What it demonstrates**:
-- Agent creation with `agent.New()`
-- OpenAI integration
-- Session management
-- Basic conversation handling
+### Main Examples
 
----
+**Basic Chat (basic-chat)**: The simplest starting point, showing how to create a chatbot with just a few lines of code.
 
-#### 2. **Task Completion** (`cmd/examples/task-completion/`)
-Advanced example showing condition validation and iterative information collection.
+**Calculator Tool (calculator-tool)**: Shows how to let agents use tools, this example creates an assistant that can do math.
 
-**Features**:
-- **Condition-based flow**: Demonstrates missing information detection
-- **Structured output**: Uses JSON schema for status tracking
-- **Iterative collection**: Simulates a restaurant reservation system
-- **Completion detection**: LLM sets completion flag when all conditions are met
-- **Safety limits**: Maximum 5 iterations to prevent token overuse
+**Advanced Conditions (advanced-conditions)**: Shows intelligent flow control where agents automatically adjust behavior based on conversation state. This is our most recommended example, showcasing the framework's powerful features.
 
-**Run the example**:
-```bash
-cd cmd/examples/task-completion
-go run main.go
-```
+**Multi-Tool Agent (multi-tool-agent)**: Shows how to let one agent use multiple tools simultaneously, intelligently selecting appropriate tools to complete tasks.
 
-**What it demonstrates**:
-- Structured output with custom types (`ReservationStatus`)
-- Condition validation logic
-- Multi-turn conversation management
-- LLM-driven completion flag detection
-- Detailed process logging
+**Task Completion (task-completion)**: Shows structured output and condition validation, simulating a restaurant reservation system.
 
-**Simulated Flow**:
-1. User: "I want to make a restaurant reservation, I'm Mr. Lee" → Missing: phone, date, time, party_size
-2. User: "My phone is 0912345678, I want tomorrow evening at 7pm" → Missing: party_size
-3. User: "4 people" → All conditions met, completion_flag = true
+Each example has detailed README instructions on how to run and key learning points. We recommend starting with basic-chat, then trying advanced-conditions.
 
----
+## Common Issues
 
-#### 3. **Calculator Tool** (`cmd/examples/calculator-tool/`)
-Demonstrates tool integration and OpenAI function calling.
+If you encounter problems, check these first:
 
-**Features**:
-- **Custom tool implementation**: Mathematical calculator
-- **Function calling**: OpenAI tool integration
-- **Multiple operations**: Add, subtract, multiply, divide, power, square root
-- **Structured results**: Tool returns detailed calculation steps
-- **Error handling**: Division by zero, invalid operations, etc.
+**API Key Configuration Error**: Make sure your `.env` file has the correct `OPENAI_API_KEY`
 
-**Run the example**:
-```bash
-cd cmd/examples/calculator-tool
-go run main.go
-```
+**Import Errors**: Make sure you're running in the correct directory and using `github.com/davidleitw/go-agent/pkg/agent`
 
-**What it demonstrates**:
-- Custom tool implementation (`agent.Tool` interface)
-- OpenAI function calling mechanism
-- Tool parameter validation
-- Structured tool responses
-- Tool execution logging
+**Module Issues**: Run `go mod tidy` in the example directory
 
-**Supported Operations**:
-- `add`: Addition (15 + 27)
-- `subtract`: Subtraction (125 - 47)
-- `multiply`: Multiplication (13 × 7)
-- `divide`: Division (144 ÷ 12)
-- `power`: Exponentiation (2^8)
-- `sqrt`: Square root (√64)
-
----
-
-#### 4. **Multi-Tool Agent** (`cmd/examples/multi-tool-agent/`)
-Advanced AI assistant demonstrating intelligent tool selection and multi-tool coordination.
-
-**Features**:
-- **Context-Aware Tool Selection**: Agent automatically chooses appropriate tools
-- **Multiple Tool Integration**: Weather, calculator, time, and notification tools
-- **Sequential Tool Usage**: Agent can use multiple tools in sequence for complex requests
-- **Real-world Scenarios**: Practical examples of multi-tool interactions
-
-**Available Tools**:
-- 🌤️ **Weather Tool**: Get weather information for any location
-- 🧮 **Calculator Tool**: Perform mathematical calculations
-- ⏰ **Time Tool**: Get current time in different timezones
-- 📢 **Notification Tool**: Send notifications and reminders
-
-**Run the example**:
-```bash
-cd cmd/examples/multi-tool-agent
-go run main.go
-```
-
-**What it demonstrates**:
-- Context-aware tool selection based on user input
-- Multi-tool coordination for complex requests
-- Tool combination scenarios (e.g., "What's the weather in London and what time is it there?")
-- Error handling across multiple tools
-- Comprehensive logging of tool orchestration
-
-**Test Scenarios**:
-- Single tool usage: Weather queries, calculations, time requests
-- Multi-tool combinations: Weather + time, calculations + weather
-- Complex workflows: Time queries with scheduled notifications
-
----
-
-#### 5. **Condition Testing** (`cmd/examples/condition-testing/`)
-Comprehensive testing of condition types and flow rule implementation using a user onboarding scenario.
-
-**Features**:
-- **Multiple Condition Types**: Missing fields, completion stages, message counts
-- **Flow Rule Orchestration**: Dynamic agent behavior modification
-- **Custom Condition Implementation**: Domain-specific conditional logic
-- **Structured Output Integration**: Conditions working with structured data
-- **Dynamic Instruction Updates**: Real-time instruction modification based on conditions
-
-**Condition Types Tested**:
-- 🎯 **Missing Fields Condition**: Checks for absent data fields
-- 📋 **Completion Stage Condition**: Validates current process stage
-- 💬 **Message Count Condition**: Triggers based on conversation length
-- 🔍 **Data Key Exists Condition**: Built-in framework condition testing
-
-**Run the example**:
-```bash
-cd cmd/examples/condition-testing
-go run main.go
-```
-
-**What it demonstrates**:
-- Custom condition implementation and evaluation logic
-- Flow rule configuration and trigger scenarios
-- Structured output with conditional validation
-- Dynamic conversation flow based on user state
-- Comprehensive condition testing across multiple scenarios
-
-**Onboarding Flow**:
-- Basic information collection (name)
-- Contact details gathering (email, phone)
-- Preferences collection (interests, hobbies)
-- Completion validation and confirmation
-
-### 🔧 Troubleshooting
-
-All examples include detailed logging to help you understand the execution flow:
-
-- **REQUEST**: User input and request parameters
-- **AGENT**: Agent processing and decision making
-- **TOOL**: Tool execution details and results
-- **RESPONSE**: LLM responses and parsing results
-- **SESSION**: Session state changes
-- **STRUCTURED**: Structured output parsing
-- **ERROR**: Error details and recovery
-
-**Common Issues**:
-
-1. **Missing API Key**: Make sure `OPENAI_API_KEY` is set in your `.env` file
-2. **Import Errors**: Ensure you're running from the example directory
-3. **Module Issues**: Run `go mod tidy` in the example directory
-
-**Example Logs**:
-```
-✅ OpenAI API key loaded (length: 51)
-📝 Creating AI agent...
-✅ Agent 'helpful-assistant' created successfully
-REQUEST[1]: Sending user input to agent
-RESPONSE[1]: Duration: 1.234s
-SESSION[1]: Total messages: 2
-```
+All examples have detailed log output to help you track execution flow and errors.
 
 ## Development
 
-### Prerequisites
-
-- Go 1.21 or later
-- (Optional) golangci-lint for linting
-
-### Building
+If you want to participate in development or customize the framework:
 
 ```bash
+# Run tests
+make test
+
+# Code linting
+make lint
+
+# Build project
 make build
 ```
 
-### Testing
+Requires Go 1.22 or newer.
 
-```bash
-# Run all tests
-make test
+## Future Plans
 
-# Run only unit tests
-make unit-test
+We're currently developing these features:
 
-# Run with coverage
-make coverage
-```
+More LLM provider support (Anthropic, Google, etc.), production-grade storage backends (Redis, PostgreSQL), streaming responses, multi-agent coordination, monitoring and observability features.
 
-### Linting
+If you have specific needs or ideas, feel free to discuss them in [GitHub Issues](https://github.com/davidleitw/go-agent/issues).
 
-```bash
-make lint
-```
+## Summary
 
-## API Documentation
+go-agent's goal is to enable Go developers to quickly build AI applications without needing to deeply understand the details of various LLM APIs. We believe good frameworks should make common tasks simple and complex tasks possible.
 
-For detailed API documentation, see:
-
-- [Getting Started Guide](./docs/getting-started.md)
-- [API Reference](./docs/api-reference.md)
-- [Architecture Overview](./docs/architecture.md)
-- [Examples](./docs/examples.md)
-
-## Contributing
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Roadmap
-
-- [ ] Additional LLM providers (Anthropic, Google, etc.)
-- [ ] Advanced storage backends (Redis, PostgreSQL)
-- [ ] Streaming response support
-- [ ] Multi-agent orchestration
-- [ ] Observability and metrics
-- [ ] Web UI for agent management
-- [ ] Plugin system for custom extensions
-
-## Support
-
-- 📖 [Documentation](./docs/)
-- 🐛 [Issue Tracker](https://github.com/davidleitw/go-agent/issues)
-- 💬 [Discussions](https://github.com/davidleitw/go-agent/discussions)
+If you're considering adding AI features to your Go project, give go-agent a try. Start with a simple chatbot, and when you need more features, the framework will grow with your needs.

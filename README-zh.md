@@ -6,28 +6,23 @@
 
 [![English](https://img.shields.io/badge/README-English-blue.svg)](README.md) [![繁體中文](https://img.shields.io/badge/README-繁體中文-red.svg)](README-zh.md)
 
-一個輕量級的 Go AI 代理框架，用於建立智能對話和自動化工作流程，具有高效率。
+一個輕量級的 Go AI 代理框架，專注於建構智能對話和自動化工作流程。
 
-## 特色功能
+## 為什麼選擇 go-agent
 
-- 🚀 **輕量級與高效**: 專注於核心功能的最小化抽象
-- ⚡ **函數式選項**: 使用 Go 的函數式選項模式提供清潔、直觀的 API
-- 🔌 **可插拔架構**: 支援多種 LLM 提供商和儲存後端
-- 🛠️ **工具整合**: 輕鬆整合自定義工具和函數呼叫
-- 🔄 **流程控制**: 帶有條件規則的動態對話流程
-- 📝 **結構化輸出**: 內建支援驗證的 JSON 輸出
-- 💾 **會話管理**: 後端場景的持久對話歷史記錄
-- 🧪 **測試支援**: 全面的模擬和測試工具
+說實話，現在市面上的 AI 框架大多都過度複雜了。我們想要的其實很簡單：給個 API key，建立一個代理，然後開始對話。就這樣。
+
+go-agent 的設計哲學很簡單：讓常見的事情變得超級簡單，讓複雜的事情變得可能。你不需要寫 60 行代碼來建立一個基本的聊天機器人，你只需要 5 行。
 
 ## 快速開始
 
-### 安裝
+首先安裝 go-agent：
 
 ```bash
 go get github.com/davidleitw/go-agent
 ```
 
-### 基本使用
+然後寫你的第一個 AI 代理。真的，就這麼簡單：
 
 ```go
 package main
@@ -35,468 +30,228 @@ package main
 import (
     "context"
     "fmt"
-    "log"
     "os"
 
     "github.com/davidleitw/go-agent/pkg/agent"
-    "github.com/davidleitw/go-agent/pkg/openai"
 )
 
 func main() {
-    // 建立 OpenAI chat model
-    chatModel, err := openai.NewChatModel(os.Getenv("OPENAI_API_KEY"), nil)
+    // 建立一個 AI 代理，就這一行
+    assistant, err := agent.New("helpful-assistant").
+        WithOpenAI(os.Getenv("OPENAI_API_KEY")).
+        WithModel("gpt-4o-mini").
+        WithInstructions("你是一個有用的助手，請簡潔友善地回應。").
+        Build()
     if err != nil {
-        log.Fatal(err)
+        panic(err)
     }
 
-    // 使用函數選項建立 agent
-    assistant, err := agent.New(
-        agent.WithName("helpful-assistant"),
-        agent.WithDescription("A helpful AI assistant"),
-        agent.WithInstructions("You are a helpful assistant. Be concise and friendly."),
-        agent.WithChatModel(chatModel),
-        agent.WithModel("gpt-4"),
-        agent.WithModelSettings(&agent.ModelSettings{
-            Temperature: floatPtr(0.7),
-            MaxTokens:   intPtr(1000),
-        }),
-        agent.WithSessionStore(agent.NewInMemorySessionStore()),
-    )
+    // 開始對話
+    response, err := assistant.Chat(context.Background(), "你好！今天過得如何？")
     if err != nil {
-        log.Fatal(err)
+        panic(err)
     }
 
-    // 開始對話 - 簡單多了！
-    ctx := context.Background()
-    response, _, err := assistant.Chat(ctx, "session-1", "Hello! How are you?")
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    fmt.Println("Assistant:", response.Content)
+    fmt.Println("助手：", response.Message)
 }
-
-func floatPtr(f float64) *float64 { return &f }
-func intPtr(i int) *int { return &i }
 ```
 
-### 搭配工具使用
+看到了嗎？不需要手動建立 OpenAI 客戶端，不需要管理會話，不需要複雜的配置結構。框架會自動處理這些。
+
+## 添加工具能力
+
+當你的代理需要執行實際操作時，比如查天氣、做計算，你就需要工具了。以前要定義一個工具需要寫一堆接口實現，現在你只需要寫一個函數：
 
 ```go
-// Define a custom tool
-type WeatherTool struct{}
+// 建立一個天氣查詢工具，直接用函數定義
+weatherTool := agent.NewTool("get_weather", 
+    "查詢指定地點的天氣資訊",
+    func(location string) map[string]any {
+        // 模擬天氣 API 調用
+        return map[string]any{
+            "location":    location,
+            "temperature": "22°C",
+            "condition":   "晴天",
+        }
+    })
 
-func (t *WeatherTool) Name() string {
-    return "get_weather"
-}
-
-func (t *WeatherTool) Description() string {
-    return "Get current weather for a location"
-}
-
-func (t *WeatherTool) Schema() map[string]interface{} {
-    return map[string]interface{}{
-        "type": "object",
-        "properties": map[string]interface{}{
-            "location": map[string]interface{}{
-                "type":        "string",
-                "description": "The city and state/country",
-            },
-        },
-        "required": []string{"location"},
-    }
-}
-
-func (t *WeatherTool) Execute(ctx context.Context, args map[string]interface{}) (interface{}, error) {
-    location := args["location"].(string)
-    // Simulate weather API call
-    return map[string]interface{}{
-        "location":    location,
-        "temperature": "22°C",
-        "condition":   "Sunny",
-    }, nil
-}
-
-// 建立 OpenAI chat model
-chatModel, err := openai.NewChatModel(os.Getenv("OPENAI_API_KEY"), nil)
-if err != nil {
-    log.Fatal(err)
-}
-
-// 建立搭配工具的 agent - 更簡潔！
-weatherAgent, err := agent.New(
-    agent.WithName("weather-assistant"),
-    agent.WithInstructions("You can help users get weather information."),
-    agent.WithChatModel(chatModel),
-    agent.WithModel("gpt-4"),
-    agent.WithTools(&WeatherTool{}),
-    agent.WithSessionStore(agent.NewInMemorySessionStore()),
-)
+// 建立有工具能力的代理
+weatherAgent, err := agent.New("weather-assistant").
+    WithOpenAI(apiKey).
+    WithInstructions("你可以幫用戶查詢天氣資訊。").
+    WithTools(weatherTool).
+    Build()
 ```
 
-### 結構化輸出
+框架會自動從你的函數生成 JSON Schema，處理參數驗證，管理工具調用流程。你不需要手動處理 OpenAI 的 function calling 格式。
+
+## 結構化輸出
+
+有時候你希望 AI 回應特定格式的資料，比如 JSON。傳統做法是在 prompt 裡面祈禱 AI 會返回正確格式，然後手動解析。現在你只需要定義一個結構，框架會處理其他一切：
 
 ```go
-// Define output structure
+// 定義你想要的輸出格式
 type TaskResult struct {
-    Title    string   `json:"title" validate:"required"`
-    Priority string   `json:"priority" validate:"required,oneof=low medium high"`
+    Title    string   `json:"title"`
+    Priority string   `json:"priority"`
     Tags     []string `json:"tags"`
 }
 
-// 建立 OpenAI chat model
-chatModel, err := openai.NewChatModel(os.Getenv("OPENAI_API_KEY"), nil)
-if err != nil {
-    log.Fatal(err)
-}
-
-// 建立具有結構化輸出的 agent - 更簡單！
-taskAgent, err := agent.New(
-    agent.WithName("task-creator"),
-    agent.WithInstructions("Create tasks based on user input. Return structured JSON."),
-    agent.WithChatModel(chatModel),
-    agent.WithModel("gpt-4"),
-    agent.WithStructuredOutput(&TaskResult{}), // 自動生成 schema
-    agent.WithSessionStore(agent.NewInMemorySessionStore()),
-)
-
-// The agent will automatically validate and parse the output
-response, structuredOutput, err := taskAgent.Chat(ctx, "session-1", "Create a high priority task for code review")
-if taskResult, ok := structuredOutput.(*TaskResult); ok {
-    fmt.Printf("Created task: %s (Priority: %s)\n", taskResult.Title, taskResult.Priority)
-}
-```
-
-### 流程規則
-
-```go
-// Create conditional flow rules
-missingInfoCondition := agent.NewDataKeyExistsCondition("missing_info_check", "missing_fields")
-
-flowRule, err := agent.NewFlowRule("collect-missing-info", missingInfoCondition).
-    WithDescription("Prompt user for missing information").
-    WithNewInstructions("Please ask the user for the following missing information: {{missing_fields}}").
-    WithRecommendedTools("collect_info").
-    WithSystemMessage("The user needs to provide additional information.").
+// 建立會返回結構化資料的代理
+taskAgent, err := agent.New("task-creator").
+    WithOpenAI(apiKey).
+    WithInstructions("根據用戶輸入建立任務，返回結構化的 JSON 資料。").
+    WithOutputType(&TaskResult{}).
     Build()
 
-// 建立 OpenAI chat model
-chatModel, err := openai.NewChatModel(os.Getenv("OPENAI_API_KEY"), nil)
-if err != nil {
-    log.Fatal(err)
+// 對話會自動返回解析好的結構
+response, err := taskAgent.Chat(ctx, "建立一個高優先級的程式碼審查任務")
+if taskResult, ok := response.Data.(*TaskResult); ok {
+    fmt.Printf("建立任務：%s (優先級：%s)\n", taskResult.Title, taskResult.Priority)
 }
-
-// 建立具有流程規則的 agent
-smartAgent, err := agent.New(
-    agent.WithName("smart-assistant"),
-    agent.WithInstructions("You are a smart assistant that adapts based on context."),
-    agent.WithChatModel(chatModel),
-    agent.WithModel("gpt-4"),
-    agent.WithFlowRules(flowRule),
-    agent.WithSessionStore(agent.NewInMemorySessionStore()),
-)
 ```
 
-## 架構
+框架會自動生成 JSON Schema，驗證 AI 的輸出，並解析成你的 Go 結構。不用再手動處理 JSON 解析錯誤了。
 
-該框架採用清晰的關注點分離設計：
+## 智能流程控制
 
-- **`pkg/agent/`**: 核心介面、實作和公共 API
-- **`pkg/openai/`**: OpenAI ChatModel 實作
+這是 go-agent 最強大的功能之一。你可以讓代理根據對話狀態自動調整行為。比如當用戶提供的資訊不完整時，自動引導他們補充：
 
-### 核心組件
+```go
+// 建立一個會自動收集缺失資訊的代理
+onboardingAgent, err := agent.New("onboarding-specialist").
+    WithOpenAI(apiKey).
+    WithInstructions("你是一個入門指導專家，需要收集用戶的基本資訊。").
+    
+    // 當缺少姓名時，自動詢問
+    OnMissingInfo("name").Ask("請問您的姓名是？").Build().
+    
+    // 當缺少電子郵件時，自動詢問
+    OnMissingInfo("email").Ask("請提供您的電子郵件地址。").Build().
+    
+    // 當對話太長時，自動總結
+    OnMessageCount(6).Summarize().Build().
+    
+    // 當用戶說"幫助"時，提供協助
+    When(agent.WhenContains("幫助")).Ask("我該如何協助您？").Build().
+    
+    // 複雜條件組合：同時缺少多個資訊時
+    When(agent.And(
+        agent.WhenMissingFields("email"),
+        agent.WhenMissingFields("phone"),
+    )).Ask("我需要您的電子郵件和電話號碼才能繼續。").Build().
+    
+    Build()
+```
 
-1. **Agent**: 完整的 AI 代理，具有配置和執行功能
-2. **Session**: 對話歷史記錄和狀態管理（用於後端場景）
-3. **Tools**: 代理可以使用的外部功能
-4. **Flow Rules**: 基於條件的動態行為控制
-5. **Chat Models**: 不同 LLM 提供商的抽象化
-6. **Storage**: 可插拔的會話持久化後端
+這些條件會在每次對話時自動檢查，讓你的代理變得更智能、更人性化。不需要在程式碼裡寫一堆 if-else 判斷。
+
+## 核心設計理念
+
+我們在設計 go-agent 時有幾個核心原則：
+
+**讓簡單的事情超級簡單**：建立一個基本的聊天機器人不應該需要讀文檔。API 應該直觀到你看一眼就知道怎麼用。
+
+**讓複雜的事情變得可能**：當你需要進階功能時，比如多工具協調、條件流程、結構化輸出，框架應該提供強大的抽象，而不是讓你重新發明輪子。
+
+**自動化的預設行為**：會話管理、工具調用循環、錯誤處理這些基礎設施應該默認就能正常工作，你不需要手動管理。
+
+### 架構組成
+
+框架主要由這幾個部分組成：
+
+**Agent（代理）**：你的 AI 助手的大腦，負責處理對話邏輯。我們提供了 `agent.New()` 讓你快速建立，也保留了完整的介面讓你自定義。
+
+**Session（會話）**：自動管理對話歷史。你不需要手動追蹤訊息，框架會處理。
+
+**Tools（工具）**：讓代理能夠執行實際操作的能力。用 `agent.NewTool()` 可以快速把任何函數變成工具。
+
+**Conditions（條件）**：智能流程控制的核心。用自然語言風格的 API 定義複雜的對話邏輯。
+
+**Chat Models（聊天模型）**：抽象化不同的 LLM 提供商。目前支援 OpenAI，很快會支援更多。
 
 ## 支援的 LLM 提供商
 
-- ✅ **OpenAI** (GPT-4, GPT-3.5-turbo, etc.)
-- 🔜 **Anthropic** (Claude 3.5 Sonnet, etc.)
-- 🔜 **Google** (Gemini)
-- 🔜 **本地模型** (透過 Ollama)
+目前主要支援 OpenAI 的模型，包括 GPT-4、GPT-4o、GPT-3.5-turbo 等。我們正在積極開發對其他提供商的支援：
 
-## 儲存後端
+**已支援**：OpenAI（完整支援，包括 function calling 和結構化輸出）
 
-- ✅ **記憶體**: 用於開發和測試
-- 🔜 **Redis**: 用於生產環境的分散式系統
-- 🔜 **PostgreSQL**: 用於進階查詢和分析
+**開發中**：Anthropic Claude、Google Gemini、本地模型（透過 Ollama）
 
-## 範例
+## 會話儲存
 
-查看 [`cmd/examples/`](./cmd/examples/) 目錄獲得完整的工作範例。每個範例都是一個獨立的 Go 程式，演示 go-agent 框架的特定功能。
+框架自帶記憶體會話儲存，適合開發和測試。生產環境的話，我們正在開發 Redis 和 PostgreSQL 後端支援。
 
-### 🚀 快速設定
+不過老實說，對於大部分應用來說，記憶體儲存已經足夠了。你可以隨時實現自己的儲存後端。
 
-1. **配置你的 OpenAI API 金鑰**:
-   ```bash
-   # 複製範例環境檔案
-   cp .env.example .env
-   
-   # 編輯 .env 並添加你的 OpenAI API 金鑰
-   # OPENAI_API_KEY=your_openai_api_key_here
-   ```
+## 範例程式
 
-2. **安裝依賴項** (針對範例):
-   ```bash
-   go mod download
-   ```
+我們在 [`examples/`](./examples/) 目錄裡準備了完整的範例，每個都是可以直接執行的 Go 程式。
 
-### 📋 可用範例
+### 快速設定
 
-#### 1. **基本聊天** (`cmd/examples/basic-chat/`)
-簡單的對話式 AI，演示核心框架使用。
-
-**特色**:
-- 環境變量配置 (.env 支援)
-- 使用函數式選項的基本代理創建
-- 簡單的對話流程
-- 詳細的日誌記錄用於排查問題
-
-**運行範例**:
-```bash
-cd cmd/examples/basic-chat
-go run main.go
-```
-
-**展示內容**:
-- 使用 `agent.New()` 創建代理
-- OpenAI 整合
-- 會話管理
-- 基本對話處理
-
----
-
-#### 2. **任務完成** (`cmd/examples/task-completion/`)
-進階範例，展示條件驗證和迭代式資訊收集。
-
-**特色**:
-- **條件式流程**: 演示缺失資訊檢測
-- **結構化輸出**: 使用 JSON schema 進行狀態追蹤
-- **迭代收集**: 模擬餐廳預訂系統
-- **完成檢測**: LLM 在所有條件滿足時設定完成標誌
-- **安全限制**: 最多 5 次迭代以防止過度使用 token
-
-**運行範例**:
-```bash
-cd cmd/examples/task-completion
-go run main.go
-```
-
-**展示內容**:
-- 使用自定義類型的結構化輸出 (`ReservationStatus`)
-- 條件驗證邏輯
-- 多輪對話管理
-- LLM 驅動的完成標誌檢測
-- 詳細的流程日誌記錄
-
-**模擬流程**:
-1. 用戶: "我想要預訂餐廳，我是李先生" → 缺少: 電話、日期、時間、人數
-2. 用戶: "我的電話是0912345678，想要明天晚上7點" → 缺少: 人數
-3. 用戶: "4個人" → 所有條件滿足，completion_flag = true
-
----
-
-#### 3. **計算器工具** (`cmd/examples/calculator-tool/`)
-演示工具整合和 OpenAI 函數呼叫。
-
-**特色**:
-- **自定義工具實現**: 數學計算器
-- **函數呼叫**: OpenAI 工具整合
-- **多種運算**: 加、減、乘、除、乘方、開方
-- **結構化結果**: 工具返回詳細的計算步驟
-- **錯誤處理**: 除零、無效運算等
-
-**運行範例**:
-```bash
-cd cmd/examples/calculator-tool
-go run main.go
-```
-
-**展示內容**:
-- 自定義工具實現 (`agent.Tool` 介面)
-- OpenAI 函數呼叫機制
-- 工具參數驗證
-- 結構化工具回應
-- 工具執行日誌記錄
-
-**支援的運算**:
-- `add`: 加法 (15 + 27)
-- `subtract`: 減法 (125 - 47)
-- `multiply`: 乘法 (13 × 7)
-- `divide`: 除法 (144 ÷ 12)
-- `power`: 乘方 (2^8)
-- `sqrt`: 開方 (√64)
-
----
-
-#### 4. **多工具智能代理** (`cmd/examples/multi-tool-agent/`)
-進階 AI 助手，展示智能工具選擇和多工具協調。
-
-**特色**:
-- **上下文感知工具選擇**: 代理自動選擇適當的工具
-- **多工具整合**: 天氣、計算器、時間和通知工具
-- **順序工具使用**: 代理可以對複雜請求按順序使用多個工具
-- **真實場景**: 多工具互動的實際範例
-
-**可用工具**:
-- 🌤️ **天氣工具**: 獲取任何地點的天氣信息
-- 🧮 **計算器工具**: 執行數學計算
-- ⏰ **時間工具**: 獲取不同時區的當前時間
-- 📢 **通知工具**: 發送通知和提醒
-
-**運行範例**:
-```bash
-cd cmd/examples/multi-tool-agent
-go run main.go
-```
-
-**展示內容**:
-- 基於用戶輸入的上下文感知工具選擇
-- 複雜請求的多工具協調
-- 工具組合場景（例如："倫敦的天氣如何，現在幾點？"）
-- 多工具間的錯誤處理
-- 工具編排的全面日誌記錄
-
-**測試場景**:
-- 單工具使用：天氣查詢、計算、時間請求
-- 多工具組合：天氣 + 時間、計算 + 天氣
-- 複雜工作流：時間查詢與預定通知
-
----
-
-#### 5. **條件測試** (`cmd/examples/condition-testing/`)
-使用用戶入職場景全面測試條件類型和流程規則實現。
-
-**特色**:
-- **多種條件類型**: 缺失欄位、完成階段、訊息計數
-- **流程規則編排**: 動態代理行為修改
-- **自定義條件實現**: 領域特定的條件邏輯
-- **結構化輸出整合**: 條件與結構化數據工作
-- **動態指令更新**: 基於條件的實時指令修改
-
-**測試的條件類型**:
-- 🎯 **缺失欄位條件**: 檢查缺失的數據欄位
-- 📋 **完成階段條件**: 驗證當前流程階段
-- 💬 **訊息計數條件**: 基於對話長度觸發
-- 🔍 **數據鍵存在條件**: 內建框架條件測試
-
-**運行範例**:
-```bash
-cd cmd/examples/condition-testing
-go run main.go
-```
-
-**展示內容**:
-- 自定義條件實現和評估邏輯
-- 流程規則配置和觸發場景
-- 帶條件驗證的結構化輸出
-- 基於用戶狀態的動態對話流程
-- 多場景的全面條件測試
-
-**入職流程**:
-- 基本信息收集（姓名）
-- 聯絡詳情收集（電子郵件、電話）
-- 偏好收集（興趣、愛好）
-- 完成驗證和確認
-
-### 🔧 問題排查
-
-所有範例都包含詳細的日誌記錄，幫助你理解執行流程：
-
-- **REQUEST**: 用戶輸入和請求參數
-- **AGENT**: 代理處理和決策過程
-- **TOOL**: 工具執行詳情和結果
-- **RESPONSE**: LLM 回應和解析結果
-- **SESSION**: 會話狀態變化
-- **STRUCTURED**: 結構化輸出解析
-- **ERROR**: 錯誤詳情和恢復過程
-
-**常見問題**:
-
-1. **缺少 API 金鑰**: 確保在 `.env` 檔案中設定了 `OPENAI_API_KEY`
-2. **匯入錯誤**: 確保從範例目錄運行
-3. **模組問題**: 在範例目錄中運行 `go mod tidy`
-
-**範例日誌**:
-```
-✅ OpenAI API key loaded (length: 51)
-📝 Creating AI agent...
-✅ Agent 'helpful-assistant' created successfully
-REQUEST[1]: Sending user input to agent
-RESPONSE[1]: Duration: 1.234s
-SESSION[1]: Total messages: 2
-```
-
-## 開發
-
-### 前置需求
-
-- Go 1.21 或更高版本
-- (可選) golangci-lint 用於代碼檢查
-
-### 建置
+先設定你的 OpenAI API key：
 
 ```bash
+# 複製範例環境檔案
+cp .env.example .env
+
+# 編輯 .env，加入你的 OpenAI API key
+```
+
+### 主要範例
+
+**基本聊天（basic-chat）**：最簡單的起點，展示如何用幾行代碼建立聊天機器人。
+
+**計算器工具（calculator-tool）**：展示如何讓代理使用工具，這個例子會建立一個會做數學運算的助手。
+
+**進階條件（advanced-conditions）**：展示智能流程控制，代理會根據對話狀態自動調整行為。這是我們最推薦的範例，展示了框架的強大功能。
+
+**多工具代理（multi-tool-agent）**：展示如何讓一個代理同時使用多個工具，智能選擇合適的工具來完成任務。
+
+**任務完成（task-completion）**：展示結構化輸出和條件驗證，模擬餐廳預訂系統。
+
+每個範例都有詳細的 README 說明如何執行和重點學習內容。建議從 basic-chat 開始，然後嘗試 advanced-conditions。
+
+## 常見問題
+
+如果遇到問題，先檢查這幾個：
+
+**API Key 設定錯誤**：確保 `.env` 檔案裡有正確的 `OPENAI_API_KEY`
+
+**匯入錯誤**：確保你在正確的目錄執行，並且使用 `github.com/davidleitw/go-agent/pkg/agent`
+
+**模組問題**：在範例目錄執行 `go mod tidy`
+
+所有範例都有詳細的日誌輸出，可以幫你追蹤執行流程和錯誤。
+
+## 開發相關
+
+如果你想參與開發或者客製化框架：
+
+```bash
+# 執行測試
+make test
+
+# 程式碼檢查
+make lint
+
+# 建構專案
 make build
 ```
 
-### 測試
+需要 Go 1.22 或更新版本。
 
-```bash
-# Run all tests
-make test
+## 未來計畫
 
-# Run only unit tests
-make unit-test
+我們正在開發這些功能：
 
-# Run with coverage
-make coverage
-```
+更多 LLM 提供商支援（Anthropic、Google 等）、生產級儲存後端（Redis、PostgreSQL）、串流回應、多代理協調、監控和觀測功能。
 
-### 代碼檢查
+如果你有特定需求或想法，歡迎在 [GitHub Issues](https://github.com/davidleitw/go-agent/issues) 提出討論。
 
-```bash
-make lint
-```
+## 總結
 
-## API 文件
+go-agent 的目標是讓 Go 開發者能夠快速建構 AI 應用，而不需要深入了解各種 LLM API 的細節。我們相信好的框架應該讓常見任務變得簡單，讓複雜任務變得可能。
 
-詳細的 API 文件請參閱：
-
-- [開始指南](./docs/getting-started.md)
-- [API 參考](./docs/api-reference.md)
-- [架構概述](./docs/architecture.md)
-- [範例](./docs/examples.md)
-
-## 貢獻
-
-1. Fork 這個儲存庫
-2. 創建您的功能分支 (`git checkout -b feature/amazing-feature`)
-3. 提交您的變更 (`git commit -m 'Add some amazing feature'`)
-4. 推送到分支 (`git push origin feature/amazing-feature`)
-5. 開啟一個 Pull Request
-
-## 許可證
-
-本專案採用 MIT 許可證 - 詳情請參閱 [LICENSE](LICENSE) 檔案。
-
-## 路線圖
-
-- [ ] 額外的 LLM 提供商 (Anthropic, Google, etc.)
-- [ ] 進階儲存後端 (Redis, PostgreSQL)
-- [ ] 串流回應支援
-- [ ] 多代理協調
-- [ ] 可觀測性和指標
-- [ ] 代理管理的 Web UI
-- [ ] 自定義擴展的插件系統
-
-## 支援
-
-- 📖 [文件](./docs/)
-- 🐛 [問題追蹤](https://github.com/davidleitw/go-agent/issues)
-- 💬 [討論](https://github.com/davidleitw/go-agent/discussions) 
+如果你正在考慮為你的 Go 專案添加 AI 功能，試試 go-agent 吧。從一個簡單的聊天機器人開始，當你需要更多功能時，框架會跟著你的需求成長。

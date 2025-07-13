@@ -47,14 +47,14 @@ func (m *mockChatModel) GetModelInfo(model string) (*ModelInfo, error) {
 type mockTool struct {
 	name        string
 	description string
-	schema      map[string]interface{}
-	executeFunc func(ctx context.Context, args map[string]interface{}) (interface{}, error)
+	schema      map[string]any
+	executeFunc func(ctx context.Context, args map[string]any) (any, error)
 }
 
-func (m *mockTool) Name() string                   { return m.name }
-func (m *mockTool) Description() string            { return m.description }
-func (m *mockTool) Schema() map[string]interface{} { return m.schema }
-func (m *mockTool) Execute(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+func (m *mockTool) Name() string           { return m.name }
+func (m *mockTool) Description() string    { return m.description }
+func (m *mockTool) Schema() map[string]any { return m.schema }
+func (m *mockTool) Execute(ctx context.Context, args map[string]any) (any, error) {
 	if m.executeFunc != nil {
 		return m.executeFunc(ctx, args)
 	}
@@ -97,19 +97,15 @@ func TestAgentCreation(t *testing.T) {
 		{
 			name: "basic agent",
 			build: func() (Agent, error) {
-				return New(
-					WithName("test-agent"),
-					WithChatModel(mockChat),
-					WithSessionStore(mockStore),
-				)
+				return NewBasicAgent(BasicAgentConfig{
+					Name:      "test-agent",
+					ChatModel: mockChat,
+				})
 			},
 			wantErr: false,
 			validate: func(t *testing.T, agent Agent) {
 				if agent.Name() != "test-agent" {
 					t.Errorf("Name() = %v, want %v", agent.Name(), "test-agent")
-				}
-				if agent.Model() != "gpt-4" { // Default model
-					t.Errorf("Model() = %v, want %v", agent.Model(), "gpt-4")
 				}
 			},
 		},
@@ -117,19 +113,19 @@ func TestAgentCreation(t *testing.T) {
 			name: "agent with all fields",
 			build: func() (Agent, error) {
 				tool := &mockTool{name: "test-tool"}
-				return New(
-					WithName("full-agent"),
-					WithDescription("A test agent"),
-					WithInstructions("You are a helpful assistant"),
-					WithModel("gpt-3.5-turbo"),
-					WithModelSettings(&ModelSettings{
+				return NewBasicAgent(BasicAgentConfig{
+					Name:         "full-agent",
+					Description:  "A test agent",
+					Instructions: "You are a helpful assistant",
+					Model:        "gpt-3.5-turbo",
+					ModelSettings: &ModelSettings{
 						Temperature: floatPtr(0.7),
 						MaxTokens:   intPtr(1000),
-					}),
-					WithTools(tool),
-					WithChatModel(mockChat),
-					WithSessionStore(mockStore),
-				)
+					},
+					Tools:        []Tool{tool},
+					ChatModel:    mockChat,
+					SessionStore: mockStore,
+				})
 			},
 			wantErr: false,
 			validate: func(t *testing.T, agent Agent) {
@@ -139,50 +135,31 @@ func TestAgentCreation(t *testing.T) {
 				if agent.Description() != "A test agent" {
 					t.Errorf("Description() = %v, want %v", agent.Description(), "A test agent")
 				}
-				if agent.Instructions() != "You are a helpful assistant" {
-					t.Errorf("Instructions() = %v, want %v", agent.Instructions(), "You are a helpful assistant")
-				}
-				if agent.Model() != "gpt-3.5-turbo" {
-					t.Errorf("Model() = %v, want %v", agent.Model(), "gpt-3.5-turbo")
-				}
-				if len(agent.Tools()) != 1 {
-					t.Errorf("Tools() length = %v, want %v", len(agent.Tools()), 1)
+				if len(agent.GetTools()) != 1 {
+					t.Errorf("GetTools() length = %v, want %v", len(agent.GetTools()), 1)
 				}
 			},
 		},
 		{
 			name: "empty name",
 			build: func() (Agent, error) {
-				return New(
-					WithName(""),
-					WithChatModel(mockChat),
-					WithSessionStore(mockStore),
-				)
+				return NewBasicAgent(BasicAgentConfig{
+					Name:      "",
+					ChatModel: mockChat,
+				})
 			},
 			wantErr: true,
-			errMsg:  "agent name cannot be empty",
+			errMsg:  "agent name is required",
 		},
 		{
 			name: "missing chat model",
 			build: func() (Agent, error) {
-				return New(
-					WithName("test-agent"),
-					WithSessionStore(mockStore),
-				)
+				return NewBasicAgent(BasicAgentConfig{
+					Name: "test-agent",
+				})
 			},
 			wantErr: true,
 			errMsg:  "chat model is required",
-		},
-		{
-			name: "missing session store",
-			build: func() (Agent, error) {
-				return New(
-					WithName("test-agent"),
-					WithChatModel(mockChat),
-				)
-			},
-			wantErr: true,
-			errMsg:  "session store is required",
 		},
 	}
 
@@ -204,21 +181,20 @@ func TestAgentCreation(t *testing.T) {
 	}
 }
 
-func TestAgentFunctionalOptions(t *testing.T) {
+func TestAgentConfiguration(t *testing.T) {
 	mockChat := &mockChatModel{}
 	mockStore := &mockSessionStore{}
 
-	// Test individual options
-	agent, err := New(
-		WithName("test-agent"),
-		WithDescription("Test description"),
-		WithInstructions("Test instructions"),
-		WithModel("gpt-4"),
-		WithMaxTurns(5),
-		WithDebugLogging(),
-		WithChatModel(mockChat),
-		WithSessionStore(mockStore),
-	)
+	// Test basic agent configuration
+	agent, err := NewBasicAgent(BasicAgentConfig{
+		Name:         "test-agent",
+		Description:  "Test description",
+		Instructions: "Test instructions",
+		Model:        "gpt-4",
+		MaxTurns:     5,
+		ChatModel:    mockChat,
+		SessionStore: mockStore,
+	})
 
 	if err != nil {
 		t.Fatalf("Failed to create agent: %v", err)
@@ -231,14 +207,6 @@ func TestAgentFunctionalOptions(t *testing.T) {
 	if agent.Description() != "Test description" {
 		t.Errorf("Description() = %v, want %v", agent.Description(), "Test description")
 	}
-
-	if agent.Instructions() != "Test instructions" {
-		t.Errorf("Instructions() = %v, want %v", agent.Instructions(), "Test instructions")
-	}
-
-	if agent.Model() != "gpt-4" {
-		t.Errorf("Model() = %v, want %v", agent.Model(), "gpt-4")
-	}
 }
 
 func TestAgentChat(t *testing.T) {
@@ -249,19 +217,18 @@ func TestAgentChat(t *testing.T) {
 			Timestamp: time.Now(),
 		},
 	}
-	mockStore := &mockSessionStore{}
 
-	agent, err := New(
-		WithName("test-agent"),
-		WithChatModel(mockChat),
-		WithSessionStore(mockStore),
-	)
+	agent, err := NewBasicAgent(BasicAgentConfig{
+		Name:      "test-agent",
+		ChatModel: mockChat,
+	})
 	if err != nil {
 		t.Fatalf("Failed to create agent: %v", err)
 	}
 
 	ctx := context.Background()
-	response, structuredOutput, err := agent.Chat(ctx, "test-session", "Hello!")
+	session := NewSession("test-session")
+	response, structuredOutput, err := agent.Chat(ctx, session, "Hello!")
 
 	if err != nil {
 		t.Errorf("Chat() error = %v, want nil", err)
@@ -371,9 +338,7 @@ func TestInMemorySessionStore(t *testing.T) {
 	}
 }
 
-// Helper functions
-func floatPtr(f float64) *float64 { return &f }
-func intPtr(i int) *int           { return &i }
+// Helper functions (floatPtr and intPtr are now in agent.go)
 
 func containsString(s, substr string) bool {
 	return len(s) >= len(substr) && findString(s, substr) >= 0

@@ -1,16 +1,15 @@
-package openai
+package agent
 
 import (
 	"context"
 	"fmt"
 	"time"
 
-	"github.com/davidleitw/go-agent/pkg/agent"
 	"github.com/sashabaranov/go-openai"
 )
 
-// ChatModel implements the agent.ChatModel interface for OpenAI
-type ChatModel struct {
+// OpenAIChatModel implements the ChatModel interface for OpenAI
+type OpenAIChatModel struct {
 	client       *openai.Client
 	baseURL      string
 	organization string
@@ -18,22 +17,32 @@ type ChatModel struct {
 	retryCount   int
 }
 
-// Config holds the configuration for creating an OpenAI ChatModel
-type Config struct {
+// OpenAIConfig holds the configuration for creating an OpenAI ChatModel
+type OpenAIConfig struct {
 	BaseURL      string
 	Organization string
 	Timeout      time.Duration
 	RetryCount   int
 }
 
-// NewChatModel creates a new OpenAI ChatModel implementation
-func NewChatModel(apiKey string, config *Config) (agent.ChatModel, error) {
+// createOpenAIChatModel creates an OpenAI chat model for the builder
+func (b *Builder) createOpenAIChatModel() (ChatModel, error) {
+	return NewOpenAIChatModel(b.options.apiKey)
+}
+
+// NewOpenAIChatModel creates a new OpenAI ChatModel implementation
+func NewOpenAIChatModel(apiKey string) (ChatModel, error) {
+	return NewOpenAIChatModelWithConfig(apiKey, nil)
+}
+
+// NewOpenAIChatModelWithConfig creates a new OpenAI ChatModel with custom config
+func NewOpenAIChatModelWithConfig(apiKey string, config *OpenAIConfig) (ChatModel, error) {
 	if apiKey == "" {
 		return nil, fmt.Errorf("OpenAI API key cannot be empty")
 	}
 
 	if config == nil {
-		config = &Config{
+		config = &OpenAIConfig{
 			Timeout:    30 * time.Second,
 			RetryCount: 3,
 		}
@@ -51,7 +60,7 @@ func NewChatModel(apiKey string, config *Config) (agent.ChatModel, error) {
 
 	client := openai.NewClientWithConfig(clientConfig)
 
-	return &ChatModel{
+	return &OpenAIChatModel{
 		client:       client,
 		baseURL:      config.BaseURL,
 		organization: config.Organization,
@@ -60,8 +69,8 @@ func NewChatModel(apiKey string, config *Config) (agent.ChatModel, error) {
 	}, nil
 }
 
-// GenerateChatCompletion implements agent.ChatModel interface
-func (o *ChatModel) GenerateChatCompletion(ctx context.Context, messages []agent.Message, model string, settings *agent.ModelSettings, tools []agent.Tool) (*agent.Message, error) {
+// GenerateChatCompletion implements ChatModel interface
+func (o *OpenAIChatModel) GenerateChatCompletion(ctx context.Context, messages []Message, model string, settings *ModelSettings, tools []Tool) (*Message, error) {
 	// Convert messages to OpenAI format
 	openaiMessages := make([]openai.ChatCompletionMessage, len(messages))
 	for i, msg := range messages {
@@ -151,7 +160,7 @@ func (o *ChatModel) GenerateChatCompletion(ctx context.Context, messages []agent
 	choice := resp.Choices[0]
 
 	// Convert response back to our format
-	response := &agent.Message{
+	response := &Message{
 		Role:      choice.Message.Role,
 		Content:   choice.Message.Content,
 		Timestamp: time.Now(),
@@ -159,12 +168,12 @@ func (o *ChatModel) GenerateChatCompletion(ctx context.Context, messages []agent
 
 	// Handle tool calls in response
 	if len(choice.Message.ToolCalls) > 0 {
-		var toolCalls []agent.ToolCall
+		var toolCalls []ToolCall
 		for _, tc := range choice.Message.ToolCalls {
-			toolCall := agent.ToolCall{
+			toolCall := ToolCall{
 				ID:   tc.ID,
 				Type: string(tc.Type),
-				Function: agent.ToolCallFunction{
+				Function: ToolCallFunction{
 					Name:      tc.Function.Name,
 					Arguments: tc.Function.Arguments,
 				},
@@ -177,8 +186,8 @@ func (o *ChatModel) GenerateChatCompletion(ctx context.Context, messages []agent
 	return response, nil
 }
 
-// GetSupportedModels implements agent.ChatModel interface
-func (o *ChatModel) GetSupportedModels() []string {
+// GetSupportedModels implements ChatModel interface
+func (o *OpenAIChatModel) GetSupportedModels() []string {
 	return []string{
 		"gpt-4",
 		"gpt-4-turbo",
@@ -188,8 +197,8 @@ func (o *ChatModel) GetSupportedModels() []string {
 	}
 }
 
-// ValidateModel implements agent.ChatModel interface
-func (o *ChatModel) ValidateModel(model string) error {
+// ValidateModel implements ChatModel interface
+func (o *OpenAIChatModel) ValidateModel(model string) error {
 	supportedModels := o.GetSupportedModels()
 	for _, supported := range supportedModels {
 		if supported == model {
@@ -199,8 +208,8 @@ func (o *ChatModel) ValidateModel(model string) error {
 	return fmt.Errorf("model %s is not supported by OpenAI provider", model)
 }
 
-// GetModelInfo implements agent.ChatModel interface
-func (o *ChatModel) GetModelInfo(model string) (*agent.ModelInfo, error) {
+// GetModelInfo implements ChatModel interface
+func (o *OpenAIChatModel) GetModelInfo(model string) (*ModelInfo, error) {
 	if err := o.ValidateModel(model); err != nil {
 		return nil, err
 	}
@@ -208,7 +217,7 @@ func (o *ChatModel) GetModelInfo(model string) (*agent.ModelInfo, error) {
 	// Return model info based on the model name
 	switch model {
 	case "gpt-4":
-		return &agent.ModelInfo{
+		return &ModelInfo{
 			ID:              "gpt-4",
 			Name:            "GPT-4",
 			Description:     "Most capable GPT-4 model",
@@ -217,14 +226,14 @@ func (o *ChatModel) GetModelInfo(model string) (*agent.ModelInfo, error) {
 			SupportsTools:   true,
 			SupportsJSON:    true,
 			Provider:        "openai",
-			Pricing: &agent.ModelPricing{
+			Pricing: &ModelPricing{
 				InputTokenPrice:  0.03,
 				OutputTokenPrice: 0.06,
 				Currency:         "USD",
 			},
 		}, nil
 	case "gpt-4-turbo":
-		return &agent.ModelInfo{
+		return &ModelInfo{
 			ID:              "gpt-4-turbo",
 			Name:            "GPT-4 Turbo",
 			Description:     "GPT-4 Turbo with 128k context",
@@ -233,14 +242,14 @@ func (o *ChatModel) GetModelInfo(model string) (*agent.ModelInfo, error) {
 			SupportsTools:   true,
 			SupportsJSON:    true,
 			Provider:        "openai",
-			Pricing: &agent.ModelPricing{
+			Pricing: &ModelPricing{
 				InputTokenPrice:  0.01,
 				OutputTokenPrice: 0.03,
 				Currency:         "USD",
 			},
 		}, nil
 	case "gpt-4o":
-		return &agent.ModelInfo{
+		return &ModelInfo{
 			ID:              "gpt-4o",
 			Name:            "GPT-4o",
 			Description:     "High-intelligence flagship model for complex, multi-step tasks",
@@ -249,14 +258,14 @@ func (o *ChatModel) GetModelInfo(model string) (*agent.ModelInfo, error) {
 			SupportsTools:   true,
 			SupportsJSON:    true,
 			Provider:        "openai",
-			Pricing: &agent.ModelPricing{
+			Pricing: &ModelPricing{
 				InputTokenPrice:  0.005,
 				OutputTokenPrice: 0.015,
 				Currency:         "USD",
 			},
 		}, nil
 	case "gpt-4o-mini":
-		return &agent.ModelInfo{
+		return &ModelInfo{
 			ID:              "gpt-4o-mini",
 			Name:            "GPT-4o mini",
 			Description:     "Affordable and intelligent small model for fast, lightweight tasks",
@@ -265,14 +274,14 @@ func (o *ChatModel) GetModelInfo(model string) (*agent.ModelInfo, error) {
 			SupportsTools:   true,
 			SupportsJSON:    true,
 			Provider:        "openai",
-			Pricing: &agent.ModelPricing{
+			Pricing: &ModelPricing{
 				InputTokenPrice:  0.00015,
 				OutputTokenPrice: 0.0006,
 				Currency:         "USD",
 			},
 		}, nil
 	case "gpt-3.5-turbo":
-		return &agent.ModelInfo{
+		return &ModelInfo{
 			ID:              "gpt-3.5-turbo",
 			Name:            "GPT-3.5 Turbo",
 			Description:     "Fast, inexpensive model for simple tasks",
@@ -281,14 +290,14 @@ func (o *ChatModel) GetModelInfo(model string) (*agent.ModelInfo, error) {
 			SupportsTools:   true,
 			SupportsJSON:    true,
 			Provider:        "openai",
-			Pricing: &agent.ModelPricing{
+			Pricing: &ModelPricing{
 				InputTokenPrice:  0.0005,
 				OutputTokenPrice: 0.0015,
 				Currency:         "USD",
 			},
 		}, nil
 	default:
-		return &agent.ModelInfo{
+		return &ModelInfo{
 			ID:              model,
 			Name:            model,
 			Description:     "OpenAI model",
