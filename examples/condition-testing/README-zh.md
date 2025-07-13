@@ -243,7 +243,7 @@ condition := agent.NewDataKeyExistsCondition("check_missing", "missing_fields")
 
 ### 自定義條件實現
 ```go
-func (c *MissingFieldsCondition) Evaluate(ctx context.Context, session agent.Session, data map[string]interface{}) (bool, error) {
+func (c *MissingFieldsCondition) Evaluate(ctx context.Context, session agent.Session, data map[string]any) (bool, error) {
     // 從結構化輸出中提取缺失欄位
     missingFields, exists := data["missing_fields"]
     if !exists {

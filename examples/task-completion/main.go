@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/davidleitw/go-agent/pkg/agent"
-	"github.com/davidleitw/go-agent/pkg/openai"
 	"github.com/joho/godotenv"
 )
 
@@ -48,15 +47,15 @@ func main() {
 	
 	// Create OpenAI chat model
 	log.Println("📝 Creating OpenAI chat model...")
-	chatModel, err := openai.NewChatModel(apiKey, nil)
+	chatModel, err := agent.NewOpenAIChatModel(apiKey)
 	if err != nil {
 		log.Fatalf("❌ Failed to create OpenAI chat model: %v", err)
 	}
 
-	reservationAgent, err := agent.New(
-		agent.WithName("reservation-assistant"),
-		agent.WithDescription("A restaurant reservation assistant that collects required information"),
-		agent.WithInstructions(`You are a restaurant reservation assistant. Your job is to collect the following required information for a reservation:
+	reservationAgent, err := agent.NewBasicAgent(agent.BasicAgentConfig{
+		Name:        "reservation-assistant",
+		Description: "A restaurant reservation assistant that collects required information",
+		Instructions: `You are a restaurant reservation assistant. Your job is to collect the following required information for a reservation:
 1. Customer name (name)
 2. Phone number (phone)  
 3. Date (date)
@@ -67,17 +66,15 @@ You must respond with JSON in the exact format specified. Track which fields are
 
 Be friendly and professional. If information is missing or unclear, ask for clarification.
 
-When all information is collected, confirm the reservation details.`),
-		agent.WithChatModel(chatModel),
-		agent.WithModel("gpt-4"),
-		agent.WithModelSettings(&agent.ModelSettings{
+When all information is collected, confirm the reservation details.`,
+		Model: "gpt-4o-mini",
+		ModelSettings: &agent.ModelSettings{
 			Temperature: floatPtr(0.3), // Lower temperature for more consistent structured output
 			MaxTokens:   intPtr(800),
-		}),
-		agent.WithStructuredOutput(&ReservationStatus{}),
-		agent.WithSessionStore(agent.NewInMemorySessionStore()),
-		agent.WithDebugLogging(),
-	)
+		},
+		OutputType: agent.NewStructuredOutputType(&ReservationStatus{}),
+		ChatModel:  chatModel,
+	})
 	if err != nil {
 		log.Fatalf("❌ Failed to create reservation agent: %v", err)
 	}
@@ -92,6 +89,7 @@ When all information is collected, confirm the reservation details.`),
 	}
 
 	sessionID := fmt.Sprintf("reservation-%d", time.Now().Unix())
+	session := agent.NewSession(sessionID)
 	log.Printf("🆔 Session ID: %s", sessionID)
 
 	ctx := context.Background()
@@ -113,7 +111,7 @@ When all information is collected, confirm the reservation details.`),
 
 		// Get agent response with structured output
 		startTime := time.Now()
-		response, structuredOutput, err := reservationAgent.Chat(ctx, sessionID, userInput)
+		response, structuredOutput, err := reservationAgent.Chat(ctx, session, userInput)
 		duration := time.Since(startTime)
 
 		if err != nil {
@@ -171,10 +169,7 @@ When all information is collected, confirm the reservation details.`),
 		}
 
 		// Check session state
-		session, err := reservationAgent.GetSession(ctx, sessionID)
-		if err == nil {
-			log.Printf("SESSION[%d]: Total messages in session: %d", turn+1, len(session.Messages()))
-		}
+		log.Printf("SESSION[%d]: Total messages in session: %d", turn+1, len(session.Messages()))
 
 		// Add delay between turns
 		time.Sleep(2 * time.Second)
@@ -188,20 +183,17 @@ When all information is collected, confirm the reservation details.`),
 
 	// Display final session summary
 	fmt.Println("\n" + strings.Repeat("=", 60))
-	session, err := reservationAgent.GetSession(ctx, sessionID)
-	if err == nil {
-		fmt.Printf("📊 Final Session Summary:\n")
-		fmt.Printf("   • Session ID: %s\n", session.ID())
-		fmt.Printf("   • Total messages: %d\n", len(session.Messages()))
-		fmt.Printf("   • Created at: %s\n", session.CreatedAt().Format("2006-01-02 15:04:05"))
-		fmt.Printf("   • Updated at: %s\n", session.UpdatedAt().Format("2006-01-02 15:04:05"))
+	fmt.Printf("📊 Final Session Summary:\n")
+	fmt.Printf("   • Session ID: %s\n", session.ID())
+	fmt.Printf("   • Total messages: %d\n", len(session.Messages()))
+	fmt.Printf("   • Created at: %s\n", session.CreatedAt().Format("2006-01-02 15:04:05"))
+	fmt.Printf("   • Updated at: %s\n", session.UpdatedAt().Format("2006-01-02 15:04:05"))
 
-		log.Printf("SUMMARY: Session %s completed with %d messages", session.ID(), len(session.Messages()))
+	log.Printf("SUMMARY: Session %s completed with %d messages", session.ID(), len(session.Messages()))
 		
-		// Log all messages for debugging
-		for i, msg := range session.Messages() {
-			log.Printf("MESSAGE[%d]: Role=%s, Content length=%d", i+1, msg.Role, len(msg.Content))
-		}
+	// Log all messages for debugging
+	for i, msg := range session.Messages() {
+		log.Printf("MESSAGE[%d]: Role=%s, Content length=%d", i+1, msg.Role, len(msg.Content))
 	}
 
 	fmt.Println("🎯 Task completion example finished!")

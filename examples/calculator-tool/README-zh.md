@@ -53,19 +53,19 @@
        return "Perform mathematical calculations including basic arithmetic, powers, and square roots"
    }
    
-   func (t *CalculatorTool) Schema() map[string]interface{} {
-       return map[string]interface{}{
+   func (t *CalculatorTool) Schema() map[string]any {
+       return map[string]any{
            "type": "object",
-           "properties": map[string]interface{}{
-               "operation": map[string]interface{}{
+           "properties": map[string]any{
+               "operation": map[string]any{
                    "type": "string",
                    "enum": []string{"add", "subtract", "multiply", "divide", "power", "sqrt"},
                },
-               "operand1": map[string]interface{}{
+               "operand1": map[string]any{
                    "type": "number",
                    "description": "The first number",
                },
-               "operand2": map[string]interface{}{
+               "operand2": map[string]any{
                    "type": "number", 
                    "description": "The second number (not required for sqrt)",
                },
@@ -80,7 +80,7 @@
 
 3. **工具執行邏輯**
    ```go
-   func (t *CalculatorTool) Execute(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+   func (t *CalculatorTool) Execute(ctx context.Context, args map[string]any) (any, error) {
        // 輸入驗證和類型轉換
        operation := args["operation"].(string)
        operand1, _ := convertToFloat64(args["operand1"])
@@ -406,8 +406,8 @@ type WeatherTool struct{}
 
 func (t *WeatherTool) Name() string { return "get_weather" }
 func (t *WeatherTool) Description() string { return "Get current weather for a location" }
-func (t *WeatherTool) Schema() map[string]interface{} { /* ... */ }
-func (t *WeatherTool) Execute(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+func (t *WeatherTool) Schema() map[string]any { /* ... */ }
+func (t *WeatherTool) Execute(ctx context.Context, args map[string]any) (any, error) {
     // 天氣 API 整合
 }
 ```
