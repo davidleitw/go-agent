@@ -10,9 +10,9 @@ A lightweight Go AI agent framework focused on building intelligent conversation
 
 ## Why choose go-agent
 
-Honestly, most AI frameworks out there are overly complex. What we really want is simple: give it an API key, create an agent, and start chatting. That's it.
+go-agent provides intuitive interfaces for building AI applications. The framework focuses on minimal configuration: provide an API key, create an agent, and start conversing.
 
-go-agent's design philosophy is simple: make common things super easy, and make complex things possible. You shouldn't need to write 60 lines of code to create a basic chatbot. You only need 5.
+The design prioritizes simplicity for common use cases while maintaining flexibility for complex scenarios. Creating a basic chatbot requires minimal code.
 
 ## Quick Start
 
@@ -22,7 +22,7 @@ First, install go-agent:
 go get github.com/davidleitw/go-agent
 ```
 
-Then write your first AI agent. Really, it's this simple:
+Create your first AI agent:
 
 ```go
 package main
@@ -56,11 +56,15 @@ func main() {
 }
 ```
 
-See that? No need to manually create OpenAI clients, manage sessions, or deal with complex configuration structs. The framework handles all of this automatically.
+The framework automatically handles OpenAI client creation, session management, and configuration setup.
 
-## Adding Tool Capabilities
+## Core Features
 
-When your agent needs to perform actual operations, like checking weather or doing calculations, you need tools. Previously, defining a tool required writing a bunch of interface implementations. Now you just write a function:
+### Tool Integration
+
+**When to use**: When agents need to perform external operations like API calls, calculations, or data processing.
+
+Tools enable agents to interact with external systems. Define tools using simple function syntax:
 
 ```go
 // Create a weather query tool using function definition
@@ -83,11 +87,15 @@ weatherAgent, err := agent.New("weather-assistant").
     Build()
 ```
 
-The framework automatically generates JSON Schema from your functions, handles parameter validation, and manages the tool calling flow. You don't need to manually handle OpenAI's function calling format.
+The framework automatically generates JSON Schema, handles parameter validation, and manages tool execution flow.
 
-## Structured Output
+**Complete example**: [Calculator Tool Example](./examples/calculator-tool/)
 
-Sometimes you want AI to respond with specific data formats, like JSON. The traditional approach is to pray in your prompt that AI returns the correct format, then manually parse it. Now you just define a struct and the framework handles everything else:
+### Structured Output
+
+**When to use**: When you need agents to return data in specific formats for downstream processing.
+
+Define structured output using Go structs:
 
 ```go
 // Define your desired output format
@@ -111,27 +119,42 @@ if taskResult, ok := response.Data.(*TaskResult); ok {
 }
 ```
 
-The framework automatically generates JSON Schema, validates AI output, and parses it into your Go struct. No more manual JSON parsing errors.
+The framework automatically generates JSON Schema, validates AI output, and parses responses into Go structs.
 
-## Smart Information Collection
+**Complete example**: [Task Completion Example](./examples/task-completion/)
 
-One of the most tedious aspects of building conversational AI is collecting structured information from users. Traditional approaches require complex state management and explicit prompting. go-agent solves this with intelligent schema-based collection:
+### Schema-Based Information Collection
+
+**When to use**: When you need to collect structured data from users across conversation turns, such as form filling, user onboarding, or support ticket creation.
+
+The schema system automatically extracts information from user messages and manages collection state. This eliminates manual state management and provides natural conversation flow.
+
+#### Basic Schema Definition
 
 ```go
 import "github.com/davidleitw/go-agent/pkg/schema"
 
-// Define what information you need
+// Required fields (default)
+emailField := schema.Define("email", "Please provide your email address")
+issueField := schema.Define("issue", "Please describe your issue")
+
+// Optional fields
+phoneField := schema.Define("phone", "Contact number for urgent matters").Optional()
+```
+
+#### Applying Schema to Conversations
+
+```go
 supportBot, err := agent.New("support-agent").
     WithOpenAI(apiKey).
-    WithInstructions("You are a professional customer support assistant.").
+    WithInstructions("You are a customer support assistant.").
     Build()
 
-// The agent automatically collects missing information
-response, err := supportBot.Chat(ctx, "I have a problem",
+response, err := supportBot.Chat(ctx, "I need help with my account",
     agent.WithSchema(
         schema.Define("email", "Please provide your email address"),
-        schema.Define("issue", "Please describe your issue in detail"), 
-        schema.Define("urgency", "How urgent is this? (low/medium/high)").Optional(),
+        schema.Define("issue", "Please describe your issue in detail"),
+        schema.Define("urgency", "How urgent is this?").Optional(),
     ),
 )
 ```
@@ -143,103 +166,162 @@ The framework intelligently:
 - **Remembers** collected information across conversation turns
 - **Adapts** to different conversation styles and user input patterns
 
-### Advanced Schema Usage
+#### Dynamic Schema Selection
 
-**Dynamic Schema Selection:**
+**When to use**: When different conversation types require different information (e.g., support requests vs. sales inquiries).
+
 ```go
-// Adapt schema based on user intent
-intent := classifyUserIntent(userInput)
-schema := getSchemaForIntent(intent) // Different fields for different scenarios
+func getSchemaForIntent(intent string) []*schema.Field {
+    switch intent {
+    case "technical_support":
+        return []*schema.Field{
+            schema.Define("email", "Email for technical follow-up"),
+            schema.Define("error_message", "What error are you seeing?"),
+            schema.Define("steps_taken", "What have you tried?"),
+        }
+    case "billing_inquiry":
+        return []*schema.Field{
+            schema.Define("email", "Account email address"),
+            schema.Define("account_id", "Your account number"),
+            schema.Define("billing_question", "Billing question details"),
+        }
+    }
+}
 
+// Apply schema based on detected intent
+intent := detectIntent(userInput)
+schema := getSchemaForIntent(intent)
 response, err := agent.Chat(ctx, userInput, agent.WithSchema(schema...))
 ```
 
-**Multi-step Workflows:**
+#### Multi-Step Workflows
+
+**When to use**: For complex forms or processes that should be broken into logical steps.
+
 ```go
-// Complex information collection across multiple steps
-workflow := getWorkflowForIntent(intent) // Multiple schema steps
-for _, stepSchema := range workflow {
-    response, err := agent.Chat(ctx, userInput, agent.WithSchema(stepSchema...))
-    // Process each step...
+func getTechnicalSupportWorkflow() [][]*schema.Field {
+    return [][]*schema.Field{
+        { // Step 1: Contact info
+            schema.Define("email", "Your email address"),
+            schema.Define("issue_summary", "Brief issue description"),
+        },
+        { // Step 2: Technical details
+            schema.Define("error_message", "Exact error message"),
+            schema.Define("browser", "Browser and version"),
+        },
+        { // Step 3: Impact assessment
+            schema.Define("urgency", "How critical is this?"),
+            schema.Define("affected_users", "How many users affected?"),
+        },
+    }
 }
 ```
 
-**Real-world Example - Customer Support:**
+**Complete examples**: 
+- [Simple Schema Example](./examples/simple-schema/) - Basic usage
+- [Customer Support Example](./examples/customer-support/) - Real-world scenarios  
+- [Dynamic Schema Example](./examples/dynamic-schema/) - Advanced workflows
+
+### Conditional Flow Control
+
+**When to use**: When you need agents to respond differently based on conversation context, user state, or external conditions.
+
+Flow control enables dynamic agent behavior through conditions and rules. This is essential for creating intelligent, context-aware conversations.
+
+#### Built-in Conditions
+
+Common conditions for typical conversation scenarios:
+
 ```go
-// Automatically collects: email, issue type, description, order ID (optional)
-supportSchema := []*schema.Field{
-    schema.Define("email", "Please provide your email for follow-up"),
-    schema.Define("issue_category", "What type of issue? (technical/billing/account)"),
-    schema.Define("description", "Please describe the issue in detail"),
-    schema.Define("order_id", "Order number if applicable").Optional(),
+// Text-based conditions
+agent.Contains("help")        // User message contains "help"
+agent.StartsWith("hello")     // User message starts with "hello"  
+agent.Exactly("yes")          // User message is exactly "yes"
+agent.MatchesRegex("\\d+")    // User message matches regex pattern
+
+// Conversation state conditions
+agent.MessageCount(5)         // Conversation has 5+ messages
+agent.TurnsSince(3)          // 3+ turns since last condition match
+agent.FirstMessage()         // This is the first message in session
+
+// Data conditions
+agent.MissingFields("email", "name")  // Required fields are missing
+agent.HasField("phone")               // Specific field is present
+agent.FieldEquals("status", "urgent") // Field has specific value
+```
+
+#### Custom Conditions
+
+Implement the `Condition` interface for complex logic:
+
+```go
+type BusinessHoursCondition struct{}
+
+func (c *BusinessHoursCondition) Name() string {
+    return "business_hours"
 }
 
-// Agent handles the entire collection flow automatically
-response, err := supportBot.Chat(ctx, "I'm having trouble with my order",
-    agent.WithSchema(supportSchema...),
+func (c *BusinessHoursCondition) Evaluate(ctx context.Context, session agent.Session, data map[string]interface{}) (bool, error) {
+    now := time.Now()
+    hour := now.Hour()
+    return hour >= 9 && hour <= 17, nil
+}
+
+// Use custom condition
+businessRule := agent.FlowRule{
+    Name:      "office_hours_response",
+    Condition: &BusinessHoursCondition{},
+    Action: agent.FlowAction{
+        NewInstructionsTemplate: "You can provide full support during business hours.",
+    },
+}
+```
+
+#### Combining Conditions
+
+```go
+// Logical operators
+agent.And(agent.Contains("urgent"), agent.MissingFields("phone"))
+agent.Or(agent.Contains("help"), agent.Contains("support"))
+agent.Not(agent.HasField("email"))
+
+// Complex condition combinations
+complexCondition := agent.And(
+    agent.Or(agent.Contains("billing"), agent.Contains("payment")),
+    agent.MissingFields("account_id"),
+    agent.MessageCount(2),
 )
 ```
 
-The schema system seamlessly integrates with existing flow control and structured output features, creating a complete solution for intelligent conversation management.
-
-## Intelligent Flow Control
-
-This is one of go-agent's most powerful features. You can make agents automatically adjust their behavior based on conversation state. For example, when user information is incomplete, automatically guide them to complete it:
-
-```go
-// Create an agent that automatically collects missing information
-onboardingAgent, err := agent.New("onboarding-specialist").
-    WithOpenAI(apiKey).
-    WithInstructions("You are an onboarding expert who needs to collect basic user information.").
-    
-    // When name is missing, automatically ask
-    OnMissingInfo("name").Ask("What's your name?").Build().
-    
-    // When email is missing, automatically ask
-    OnMissingInfo("email").Ask("Please provide your email address.").Build().
-    
-    // When conversation gets too long, automatically summarize
-    OnMessageCount(6).Summarize().Build().
-    
-    // When user says "help", provide assistance
-    When(agent.WhenContains("help")).Ask("How can I help you?").Build().
-    
-    // Complex condition combinations: when multiple information is missing
-    When(agent.And(
-        agent.WhenMissingFields("email"),
-        agent.WhenMissingFields("phone"),
-    )).Ask("I need both your email and phone number to proceed.").Build().
-    
-    Build()
-```
-
-These conditions are automatically checked during each conversation, making your agent smarter and more human-like. No need to write a bunch of if-else statements in your code.
+**Complete examples**:
+- [Condition Testing Example](./examples/condition-testing/) - Basic flow control
+- [Advanced Conditions Example](./examples/advanced-conditions/) - Complex scenarios
 
 ## Core Design Philosophy
 
-We had several core principles when designing go-agent:
+The framework design follows these principles:
 
-**Make simple things super simple**: Creating a basic chatbot shouldn't require reading documentation. The API should be intuitive enough that you know how to use it at first glance.
+**Simplicity for common cases**: Basic functionality requires minimal configuration. Essential operations like creating agents and managing conversations use straightforward APIs.
 
-**Make complex things possible**: When you need advanced features like multi-tool coordination, conditional flows, structured output, the framework should provide powerful abstractions instead of making you reinvent the wheel.
+**Flexibility for complex scenarios**: Advanced features including multi-tool coordination, conditional flows, and structured output are available through composable interfaces.
 
-**Automated default behavior**: Infrastructure like session management, tool calling loops, error handling should work correctly by default without manual management.
+**Automatic infrastructure management**: Session management, tool execution, and error handling operate without manual intervention.
 
 ### Architecture Components
 
 The framework consists of several main parts:
 
-**Agent**: The brain of your AI assistant, responsible for handling conversation logic. We provide `agent.New()` for quick creation while preserving full interfaces for customization.
+**Agent**: Core interface for conversation handling. Create using `agent.New()` or implement custom logic through the `Agent` interface.
 
-**Session**: Automatically manages conversation history. You don't need to manually track messages; the framework handles it.
+**Session**: Manages conversation history and state. Automatic persistence and retrieval across conversation turns.
 
-**Tools**: Capabilities that allow agents to perform actual operations. Use `agent.NewTool()` to quickly turn any function into a tool.
+**Tools**: Enable external operations through the `Tool` interface. Convert functions to tools using `agent.NewTool()`.
 
-**Conditions**: The core of intelligent flow control. Define complex conversation logic with natural language style APIs.
+**Conditions**: Flow control through the `Condition` interface. Built-in conditions available for common scenarios.
 
-**Schema**: Intelligent information collection system. Define what data you need and let the framework automatically extract and collect it through natural conversation.
+**Schema**: Information collection through the `schema` package. Automatic extraction and validation of structured data.
 
-**Chat Models**: Abstraction for different LLM providers. Currently supports OpenAI, with more coming soon.
+**Chat Models**: LLM provider abstraction. Supports OpenAI with additional providers in development.
 
 ## Supported LLM Providers
 
