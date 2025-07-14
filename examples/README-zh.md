@@ -44,8 +44,8 @@ go run examples/task-completion/main.go
 # 執行多工具代理範例
 go run examples/multi-tool-agent/main.go
 
-# 執行條件測試範例
-go run examples/condition-testing/main.go
+# 執行進階條件範例
+go run examples/advanced-conditions/main.go
 
 # 執行簡單 Schema 範例
 go run examples/simple-schema/main.go
@@ -143,25 +143,25 @@ go run examples/dynamic-schema/main.go
 
 ---
 
-### 5. 條件測試 (`condition-testing/`)
-**目的**: 對話中的高級流程控制和條件邏輯
+### 5. 進階條件 (`advanced-conditions/`)
+**目的**: 展示條件系統和流程規則的基本概念
 
 **展示內容**:
-- 流程規則和條件
-- 動態對話流程
-- 用戶入職流程
-- 條件工具執行
-- 高級狀態管理
+- 條件定義和創建
+- 關鍵字檢測條件
+- 對話計數條件
+- OR 邏輯組合
+- 流程規則建構
 
 **核心 API**:
-- `agent.FlowRule` 介面
-- `agent.Condition` 介面
-- 動態流程控制
-- 條件動作
+- `conditions.Contains()` - 文字檢測
+- `conditions.Count()` - 訊息計數
+- `conditions.Or()` - 邏輯組合
+- `agent.NewFlowRule()` - 規則建構
 
-**使用案例**: 建立具有複雜、適應性對話流程的代理。
+**使用案例**: 學習條件系統的基礎概念和流程規則定義。
 
-**詳細文檔**: [README](condition-testing/README-zh.md) | [English](condition-testing/README.md)
+**詳細文檔**: [README](advanced-conditions/README-zh.md) | [English](advanced-conditions/README.md)
 
 ---
 
