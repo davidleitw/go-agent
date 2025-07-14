@@ -45,30 +45,42 @@ import (
     "os"
 
     "github.com/davidleitw/go-agent/pkg/agent"
+    "github.com/davidleitw/go-agent/internal/llm"
 )
 
 func main() {
-    // Create an AI agent in one line
-    assistant, err := agent.New("helpful-assistant").
-        WithOpenAI(os.Getenv("OPENAI_API_KEY")).
-        WithModel("gpt-4o-mini").
-        WithInstructions("You are a helpful assistant. Be concise and friendly.").
-        Build()
+    // Create OpenAI chat model
+    chatModel, err := llm.NewOpenAIChatModel(os.Getenv("OPENAI_API_KEY"))
     if err != nil {
         panic(err)
     }
 
+    // Create an AI agent
+    assistant, err := agent.NewBasicAgent(agent.BasicAgentConfig{
+        Name:         "helpful-assistant",
+        Description:  "A helpful AI assistant",
+        Instructions: "You are a helpful assistant. Be concise and friendly.",
+        Model:        "gpt-4o-mini",
+        ChatModel:    chatModel,
+    })
+    if err != nil {
+        panic(err)
+    }
+
+    // Create a session for the conversation
+    session := agent.NewSession("chat-session-1")
+    
     // Start chatting
-    response, err := assistant.Chat(context.Background(), "Hello! How are you today?")
+    response, _, err := assistant.Chat(context.Background(), session, "Hello! How are you today?")
     if err != nil {
         panic(err)
     }
 
-    fmt.Println("Assistant:", response.Message)
+    fmt.Println("Assistant:", response.Content)
 }
 ```
 
-The framework automatically handles OpenAI client creation, session management, and configuration setup.
+The framework provides explicit session management for better control and testability.
 
 ## Core Features
 
@@ -79,24 +91,28 @@ The framework automatically handles OpenAI client creation, session management, 
 Tools enable agents to interact with external systems. Define tools using simple function syntax:
 
 ```go
-// Create a weather query tool using function definition
-weatherTool := agent.NewTool("get_weather", 
-    "Get weather information for a specified location",
-    func(location string) map[string]any {
-        // Simulate weather API call
-        return map[string]any{
-            "location":    location,
-            "temperature": "22°C",
-            "condition":   "Sunny",
-        }
-    })
+// Create a weather query tool
+weatherTool := &WeatherTool{}
+
+// Create OpenAI chat model
+chatModel, err := llm.NewOpenAIChatModel(apiKey)
+if err != nil {
+    panic(err)
+}
 
 // Create an agent with tool capabilities
-weatherAgent, err := agent.New("weather-assistant").
-    WithOpenAI(apiKey).
-    WithInstructions("You can help users get weather information.").
-    WithTools(weatherTool).
-    Build()
+weatherAgent, err := agent.NewBasicAgent(agent.BasicAgentConfig{
+    Name:         "weather-assistant",
+    Description:  "An assistant that provides weather information",
+    Instructions: "You can help users get weather information using tools.",
+    Model:        "gpt-4o-mini",
+    Tools:        []agent.Tool{weatherTool},
+    ChatModel:    chatModel,
+})
+
+// Use the agent with a session
+session := agent.NewSession("weather-chat")
+response, _, err := weatherAgent.Chat(ctx, session, "What's the weather in Tokyo?")
 ```
 
 The framework automatically generates JSON Schema, handles parameter validation, and manages tool execution flow.
@@ -117,16 +133,24 @@ type TaskResult struct {
     Tags     []string `json:"tags"`
 }
 
+// Create output type
+outputType := &TaskResultOutputType{}
+
 // Create an agent that returns structured data
-taskAgent, err := agent.New("task-creator").
-    WithOpenAI(apiKey).
-    WithInstructions("Create tasks based on user input, return structured JSON data.").
-    WithOutputType(&TaskResult{}).
-    Build()
+chatModel, _ := llm.NewOpenAIChatModel(apiKey)
+taskAgent, err := agent.NewBasicAgent(agent.BasicAgentConfig{
+    Name:         "task-creator",
+    Description:  "Creates structured task data",
+    Instructions: "Create tasks based on user input, return structured JSON data.",
+    Model:        "gpt-4o-mini", 
+    OutputType:   outputType,
+    ChatModel:    chatModel,
+})
 
 // Conversations automatically return parsed structures
-response, err := taskAgent.Chat(ctx, "Create a high priority code review task")
-if taskResult, ok := response.Data.(*TaskResult); ok {
+session := agent.NewSession("task-session")
+response, structuredOutput, err := taskAgent.Chat(ctx, session, "Create a high priority code review task")
+if taskResult, ok := structuredOutput.(*TaskResult); ok {
     fmt.Printf("Created task: %s (Priority: %s)\n", taskResult.Title, taskResult.Priority)
 }
 ```
@@ -157,12 +181,17 @@ phoneField := schema.Define("phone", "Contact number for urgent matters").Option
 #### Applying Schema to Conversations
 
 ```go
-supportBot, err := agent.New("support-agent").
-    WithOpenAI(apiKey).
-    WithInstructions("You are a customer support assistant.").
-    Build()
+chatModel, _ := llm.NewOpenAIChatModel(apiKey)
+supportBot, err := agent.NewBasicAgent(agent.BasicAgentConfig{
+    Name:         "support-agent",
+    Description:  "Customer support assistant",
+    Instructions: "You are a customer support assistant.",
+    Model:        "gpt-4o-mini",
+    ChatModel:    chatModel,
+})
 
-response, err := supportBot.Chat(ctx, "I need help with my account",
+session := agent.NewSession("support-session")
+response, structuredOutput, err := supportBot.Chat(ctx, session, "I need help with my account",
     agent.WithSchema(
         schema.Define("email", "Please provide your email address"),
         schema.Define("issue", "Please describe your issue in detail"),
@@ -203,7 +232,8 @@ func getSchemaForIntent(intent string) []*schema.Field {
 // Apply schema based on detected intent
 intent := detectIntent(userInput)
 schema := getSchemaForIntent(intent)
-response, err := agent.Chat(ctx, userInput, agent.WithSchema(schema...))
+session := agent.NewSession("dynamic-session")
+response, structuredOutput, err := agent.Chat(ctx, session, userInput, agent.WithSchema(schema...))
 ```
 
 #### Multi-Step Workflows
@@ -271,7 +301,7 @@ func (c *BusinessHoursCondition) Name() string {
     return "business_hours"
 }
 
-func (c *BusinessHoursCondition) Evaluate(ctx context.Context, session agent.Session, data map[string]interface{}) (bool, error) {
+func (c *BusinessHoursCondition) Evaluate(ctx context.Context, session conditions.Session, data map[string]interface{}) (bool, error) {
     now := time.Now()
     hour := now.Hour()
     return hour >= 9 && hour <= 17, nil
@@ -347,11 +377,92 @@ Currently mainly supports OpenAI models, including GPT-4, GPT-4o, GPT-3.5-turbo,
 
 **In Development**: Anthropic Claude, Google Gemini, local models (via Ollama)
 
-## Session Storage
+## Session Management
+
+### Session Interface (v0.0.2+)
+
+The Session interface has been simplified for better usability and performance:
+
+```go
+type Session interface {
+    ID() string
+    Messages() []Message
+    AddMessage(role, content string) Message
+    GetData(key string) interface{}
+    SetData(key string, value interface{})
+}
+```
+
+### Basic Session Usage
+
+```go
+// Create a new session
+session := agent.NewSession("my-session-id")
+
+// Add messages of different types
+session.AddMessage(agent.RoleUser, "Hello!")
+session.AddMessage(agent.RoleAssistant, "Hi there! How can I help?")
+session.AddMessage(agent.RoleSystem, "User authenticated successfully")
+
+// Store arbitrary data with the session
+session.SetData("user_id", "user_12345")
+session.SetData("preferences", map[string]string{"theme": "dark"})
+
+// Retrieve session data
+userID := session.GetData("user_id").(string)
+prefs := session.GetData("preferences").(map[string]string)
+
+// Access conversation history
+messages := session.Messages()
+fmt.Printf("Conversation has %d messages\n", len(messages))
+```
+
+### Thread-Safe Operations
+
+All session operations are thread-safe and can be used safely from multiple goroutines:
+
+```go
+// Concurrent message addition is safe
+go func() {
+    session.AddMessage(agent.RoleUser, "Message from goroutine 1")
+}()
+
+go func() {
+    session.AddMessage(agent.RoleUser, "Message from goroutine 2")
+}()
+```
+
+### Session Cloning
+
+Sessions support cloning for branching conversations:
+
+```go
+// Clone a session for different conversation paths
+if cloneable, ok := session.(interface{ Clone() Session }); ok {
+    branchedSession := cloneable.Clone()
+    // Now you have two independent sessions
+}
+```
+
+**Complete example**: [Session Management Example](./examples/session-management/)
+
+### Session Storage
 
 The framework comes with in-memory session storage, suitable for development and testing. For production environments, we're developing Redis and PostgreSQL backend support.
 
-Honestly though, for most applications, in-memory storage is sufficient. You can always implement your own storage backend.
+```go
+// Use in-memory session store (default)
+sessionStore := agent.NewInMemorySessionStore()
+
+// Create agent with custom session store
+agent, err := agent.NewBasicAgent(agent.BasicAgentConfig{
+    Name:         "my-agent",
+    ChatModel:    chatModel,
+    SessionStore: sessionStore,
+})
+```
+
+For most applications, in-memory storage is sufficient. You can always implement your own storage backend by implementing the `SessionStore` interface.
 
 ## Examples
 

@@ -45,30 +45,42 @@ import (
     "os"
 
     "github.com/davidleitw/go-agent/pkg/agent"
+    "github.com/davidleitw/go-agent/internal/llm"
 )
 
 func main() {
-    // 建立一個 AI 代理，就這一行
-    assistant, err := agent.New("helpful-assistant").
-        WithOpenAI(os.Getenv("OPENAI_API_KEY")).
-        WithModel("gpt-4o-mini").
-        WithInstructions("你是一個有用的助手，請簡潔友善地回應。").
-        Build()
+    // 建立 OpenAI 聊天模型
+    chatModel, err := llm.NewOpenAIChatModel(os.Getenv("OPENAI_API_KEY"))
     if err != nil {
         panic(err)
     }
 
+    // 建立 AI 代理
+    assistant, err := agent.NewBasicAgent(agent.BasicAgentConfig{
+        Name:         "helpful-assistant",
+        Description:  "一個有用的 AI 助手",
+        Instructions: "你是一個有用的助手，請簡潔友善地回應。",
+        Model:        "gpt-4o-mini",
+        ChatModel:    chatModel,
+    })
+    if err != nil {
+        panic(err)
+    }
+
+    // 建立對話 session
+    session := agent.NewSession("chat-session-1")
+    
     // 開始對話
-    response, err := assistant.Chat(context.Background(), "你好！今天過得如何？")
+    response, _, err := assistant.Chat(context.Background(), session, "你好！今天過得如何？")
     if err != nil {
         panic(err)
     }
 
-    fmt.Println("助手：", response.Message)
+    fmt.Println("助手：", response.Content)
 }
 ```
 
-框架會自動處理 OpenAI 客戶端建立、session 管理和配置設定。
+框架提供明確的 session 管理，以獲得更好的控制和可測試性。
 
 ## 核心功能
 
@@ -347,11 +359,92 @@ complexCondition := conditions.Contains("support").
 
 **開發中**：Anthropic Claude、Google Gemini、本地模型（透過 Ollama）
 
-## 會話儲存
+## Session 管理
 
-框架自帶記憶體會話儲存，適合開發和測試。生產環境的話，我們正在開發 Redis 和 PostgreSQL 後端支援。
+### Session 介面 (v0.0.2+)
 
-不過老實說，對於大部分應用來說，記憶體儲存已經足夠了。你可以隨時實現自己的儲存後端。
+Session 介面已經簡化，提供更好的易用性和效能：
+
+```go
+type Session interface {
+    ID() string
+    Messages() []Message
+    AddMessage(role, content string) Message
+    GetData(key string) interface{}
+    SetData(key string, value interface{})
+}
+```
+
+### 基本 Session 使用
+
+```go
+// 建立新的 session
+session := agent.NewSession("my-session-id")
+
+// 添加不同類型的訊息
+session.AddMessage(agent.RoleUser, "你好！")
+session.AddMessage(agent.RoleAssistant, "你好！有什麼可以幫您的？")
+session.AddMessage(agent.RoleSystem, "使用者驗證成功")
+
+// 在 session 中儲存任意資料
+session.SetData("user_id", "user_12345")
+session.SetData("preferences", map[string]string{"theme": "dark"})
+
+// 取得 session 資料
+userID := session.GetData("user_id").(string)
+prefs := session.GetData("preferences").(map[string]string)
+
+// 存取對話歷史
+messages := session.Messages()
+fmt.Printf("對話有 %d 則訊息\n", len(messages))
+```
+
+### 執行緒安全操作
+
+所有 session 操作都是執行緒安全的，可以安全地從多個 goroutine 使用：
+
+```go
+// 併發添加訊息是安全的
+go func() {
+    session.AddMessage(agent.RoleUser, "來自 goroutine 1 的訊息")
+}()
+
+go func() {
+    session.AddMessage(agent.RoleUser, "來自 goroutine 2 的訊息")
+}()
+```
+
+### Session 複製
+
+Session 支援複製，用於分支對話：
+
+```go
+// 複製 session 用於不同的對話路徑
+if cloneable, ok := session.(interface{ Clone() Session }); ok {
+    branchedSession := cloneable.Clone()
+    // 現在你有兩個獨立的 session
+}
+```
+
+**完整範例**：[Session 管理範例](./examples/session-management/)
+
+### Session 儲存
+
+框架自帶記憶體 session 儲存，適合開發和測試。生產環境的話，我們正在開發 Redis 和 PostgreSQL 後端支援。
+
+```go
+// 使用記憶體 session 儲存（預設）
+sessionStore := agent.NewInMemorySessionStore()
+
+// 建立使用自訂 session 儲存的代理
+agent, err := agent.NewBasicAgent(agent.BasicAgentConfig{
+    Name:         "my-agent",
+    ChatModel:    chatModel,
+    SessionStore: sessionStore,
+})
+```
+
+對於大部分應用來說，記憶體儲存已經足夠了。你可以隨時透過實作 `SessionStore` 介面來建立自己的儲存後端。
 
 ## 範例程式
 
