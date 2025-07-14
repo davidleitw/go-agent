@@ -124,8 +124,7 @@ func (a *basicAgent) GetFlowRules() []FlowRule {
 // Chat implements the Agent interface
 func (a *basicAgent) Chat(ctx context.Context, session Session, userInput string) (*Message, any, error) {
 	// Add user message to session
-	userMessage := NewUserMessage(userInput)
-	session.AddMessage(userMessage)
+	session.AddMessage(RoleUser, userInput)
 
 	// Get tools and flow rules from the agent interface
 	tools := a.GetTools()
@@ -222,25 +221,30 @@ func (a *basicAgent) Chat(ctx context.Context, session Session, userInput string
 		if err != nil {
 			// Use fallback response if available for AskAI failures
 			if fallbackResponse != "" {
-				fallbackMessage := &Message{
-					Role:      RoleAssistant,
-					Content:   fallbackResponse,
-					Timestamp: timeNow(),
-				}
-				session.AddMessage(*fallbackMessage)
+				session.AddMessage(RoleAssistant, fallbackResponse)
 				
 				// Save session
 				if err := a.config.SessionStore.Save(ctx, session); err != nil {
 					fmt.Printf("Warning: failed to save session: %v\n", err)
 				}
 				
-				return fallbackMessage, nil, nil
+				// Create fallback message to return
+				fallbackMsg := &Message{
+					Role:      RoleAssistant,
+					Content:   fallbackResponse,
+					Timestamp: timeNow(),
+				}
+				return fallbackMsg, nil, nil
 			}
 			return nil, nil, fmt.Errorf("failed to generate chat completion: %w", err)
 		}
 
-		// Add response to session
-		session.AddMessage(*response)
+		// Add response to session (may contain tool calls)
+		if advSession, ok := session.(SessionAdvanced); ok {
+			advSession.AddComplexMessage(*response)
+		} else {
+			session.AddMessage(response.Role, response.Content)
+		}
 
 		// If no tool calls, we're done
 		if len(response.ToolCalls) == 0 {
@@ -283,7 +287,11 @@ func (a *basicAgent) Chat(ctx context.Context, session Session, userInput string
 					toolCall.Function.Name,
 					fmt.Sprintf("Error: tool '%s' not found", toolCall.Function.Name),
 				)
-				session.AddMessage(errorMsg)
+				if advSession, ok := session.(SessionAdvanced); ok {
+					advSession.AddComplexMessage(errorMsg)
+				} else {
+					session.AddMessage(errorMsg.Role, errorMsg.Content)
+				}
 				toolCallsHandled++
 				continue
 			}
@@ -296,7 +304,11 @@ func (a *basicAgent) Chat(ctx context.Context, session Session, userInput string
 					toolCall.Function.Name,
 					fmt.Sprintf("Error: invalid arguments - %v", err),
 				)
-				session.AddMessage(errorMsg)
+				if advSession, ok := session.(SessionAdvanced); ok {
+					advSession.AddComplexMessage(errorMsg)
+				} else {
+					session.AddMessage(errorMsg.Role, errorMsg.Content)
+				}
 				toolCallsHandled++
 				continue
 			}
@@ -314,7 +326,11 @@ func (a *basicAgent) Chat(ctx context.Context, session Session, userInput string
 					toolCall.Function.Name,
 					fmt.Sprintf("Error: %v", err),
 				)
-				session.AddMessage(errorMsg)
+				if advSession, ok := session.(SessionAdvanced); ok {
+					advSession.AddComplexMessage(errorMsg)
+				} else {
+					session.AddMessage(errorMsg.Role, errorMsg.Content)
+				}
 				toolCallsHandled++
 				continue
 			}
@@ -327,7 +343,11 @@ func (a *basicAgent) Chat(ctx context.Context, session Session, userInput string
 					toolCall.Function.Name,
 					fmt.Sprintf("Error: failed to serialize result - %v", err),
 				)
-				session.AddMessage(errorMsg)
+				if advSession, ok := session.(SessionAdvanced); ok {
+					advSession.AddComplexMessage(errorMsg)
+				} else {
+					session.AddMessage(errorMsg.Role, errorMsg.Content)
+				}
 				toolCallsHandled++
 				continue
 			}
@@ -338,7 +358,11 @@ func (a *basicAgent) Chat(ctx context.Context, session Session, userInput string
 				toolCall.Function.Name,
 				string(resultJSON),
 			)
-			session.AddMessage(toolMsg)
+			if advSession, ok := session.(SessionAdvanced); ok {
+				advSession.AddComplexMessage(toolMsg)
+			} else {
+				session.AddMessage(toolMsg.Role, toolMsg.Content)
+			}
 			toolCallsHandled++
 		}
 
@@ -392,8 +416,12 @@ func (s *inMemoryStore) Save(ctx context.Context, session Session) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	// Clone the session to prevent external modification
-	s.sessions[session.ID()] = session.Clone()
+	// Clone the session to prevent external modification if possible
+	if cloneable, ok := session.(interface{ Clone() Session }); ok {
+		s.sessions[session.ID()] = cloneable.Clone()
+	} else {
+		s.sessions[session.ID()] = session
+	}
 	return nil
 }
 
@@ -411,8 +439,12 @@ func (s *inMemoryStore) Load(ctx context.Context, sessionID string) (Session, er
 		return nil, ErrSessionNotFound
 	}
 
-	// Return a clone to prevent external modification
-	return session.Clone(), nil
+	// Return a clone to prevent external modification if possible
+	if cloneable, ok := session.(interface{ Clone() Session }); ok {
+		return cloneable.Clone(), nil
+	} else {
+		return session, nil
+	}
 }
 
 // Delete removes a session from memory
@@ -457,115 +489,13 @@ func (s *inMemoryStore) Exists(ctx context.Context, sessionID string) (bool, err
 	return exists, nil
 }
 
-// NewSession creates a new session with the given ID
-func NewSession(id string) Session {
-	now := time.Now()
-	return &simpleSession{
-		id:        id,
-		messages:  make([]Message, 0),
-		createdAt: now,
-		updatedAt: now,
-	}
-}
+// Session creation is now handled in session.go
 
 // NewStructuredOutputType creates an OutputType from a struct example
 func NewStructuredOutputType(example any) OutputType {
 	return &simpleOutputType{example: example}
 }
 
-// simpleSession implements the Session interface
-type simpleSession struct {
-	id        string
-	messages  []Message
-	createdAt time.Time
-	updatedAt time.Time
-}
-
-// ID returns the session identifier
-func (s *simpleSession) ID() string {
-	return s.id
-}
-
-// Messages returns all messages in the session
-func (s *simpleSession) Messages() []Message {
-	return s.messages
-}
-
-// AddMessage adds a message to the session
-func (s *simpleSession) AddMessage(msg Message) {
-	s.messages = append(s.messages, msg)
-	s.updatedAt = time.Now()
-}
-
-// AddUserMessage adds a user message to the session
-func (s *simpleSession) AddUserMessage(content string) {
-	msg := Message{
-		Role:      RoleUser,
-		Content:   content,
-		Timestamp: time.Now(),
-	}
-	s.AddMessage(msg)
-}
-
-// AddAssistantMessage adds an assistant message to the session
-func (s *simpleSession) AddAssistantMessage(content string) {
-	msg := Message{
-		Role:      RoleAssistant,
-		Content:   content,
-		Timestamp: time.Now(),
-	}
-	s.AddMessage(msg)
-}
-
-// AddSystemMessage adds a system message to the session
-func (s *simpleSession) AddSystemMessage(content string) {
-	msg := Message{
-		Role:      RoleSystem,
-		Content:   content,
-		Timestamp: time.Now(),
-	}
-	s.AddMessage(msg)
-}
-
-// AddToolMessage adds a tool response message to the session
-func (s *simpleSession) AddToolMessage(toolCallID, toolName, content string) {
-	msg := Message{
-		Role:       RoleTool,
-		Content:    content,
-		ToolCallID: toolCallID,
-		Name:       toolName,
-		Timestamp:  time.Now(),
-	}
-	s.AddMessage(msg)
-}
-
-// CreatedAt returns when the session was created
-func (s *simpleSession) CreatedAt() time.Time {
-	return s.createdAt
-}
-
-// UpdatedAt returns when the session was last updated
-func (s *simpleSession) UpdatedAt() time.Time {
-	return s.updatedAt
-}
-
-// Clear removes all messages from the session
-func (s *simpleSession) Clear() {
-	s.messages = make([]Message, 0)
-	s.updatedAt = time.Now()
-}
-
-// Clone creates a copy of the session
-func (s *simpleSession) Clone() Session {
-	clone := &simpleSession{
-		id:        s.id,
-		messages:  make([]Message, len(s.messages)),
-		createdAt: s.createdAt,
-		updatedAt: s.updatedAt,
-	}
-	copy(clone.messages, s.messages)
-	return clone
-}
 
 // simpleOutputType implements OutputType for structured output
 type simpleOutputType struct {
@@ -1315,7 +1245,7 @@ func extractContainsText(condition string) string {
 // whether the caller should return immediately with the response.
 func (a *simpleAgentImpl) handleSchemaCollection(ctx context.Context, session Session, input string, fields []*schema.Field) (*Response, bool, error) {
 	// Add user input to session for context
-	session.AddUserMessage(input)
+	session.AddMessage(RoleUser, input)
 	
 	// Analyze conversation to extract available information
 	extractedData, err := a.extractInformationFromConversation(ctx, session, fields)
@@ -1338,7 +1268,7 @@ func (a *simpleAgentImpl) handleSchemaCollection(ctx context.Context, session Se
 	}
 	
 	// Add assistant response to session
-	session.AddAssistantMessage(response.Message)
+	session.AddMessage(RoleAssistant, response.Message)
 	
 	return response, true, nil
 }

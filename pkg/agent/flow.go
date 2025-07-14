@@ -297,12 +297,14 @@ func (fr *FlowAction) Apply(ctx context.Context, session Session, data map[strin
 		if len(data) > 0 {
 			message = applyTemplate(message, data)
 		}
-		session.AddSystemMessage(message)
+		session.AddMessage(RoleSystem, message)
 	}
 
 	// Clear history if requested
 	if fr.ClearHistory {
-		session.Clear()
+		if clearable, ok := session.(interface{ ClearMessages() }); ok {
+			clearable.ClearMessages()
+		}
 	}
 
 	// Check if execution should stop

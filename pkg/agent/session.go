@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"sync"
 	"time"
 )
 
@@ -55,40 +56,23 @@ const (
 	RoleTool      = "tool"
 )
 
-// Session represents a conversation's history and state
+// Session represents a simplified conversation session interface
 type Session interface {
-	// ID returns the unique identifier for this session
+	// Core methods
 	ID() string
-
-	// Messages returns all messages in the session
 	Messages() []Message
+	AddMessage(role, content string) Message
+	
+	// Extended data storage for custom session data
+	GetData(key string) interface{}
+	SetData(key string, value interface{})
+}
 
-	// AddMessage adds a new message to the session
-	AddMessage(msg Message)
-
-	// AddUserMessage is a convenience method to add a user message
-	AddUserMessage(content string)
-
-	// AddAssistantMessage is a convenience method to add an assistant message
-	AddAssistantMessage(content string)
-
-	// AddSystemMessage is a convenience method to add a system message
-	AddSystemMessage(content string)
-
-	// AddToolMessage is a convenience method to add a tool response message
-	AddToolMessage(toolCallID, toolName, content string)
-
-	// CreatedAt returns when the session was created
-	CreatedAt() time.Time
-
-	// UpdatedAt returns when the session was last updated
-	UpdatedAt() time.Time
-
-	// Clear removes all messages from the session
-	Clear()
-
-	// Clone creates a deep copy of the session
-	Clone() Session
+// SessionAdvanced provides additional methods for complex use cases
+// This interface is used internally by the framework
+type SessionAdvanced interface {
+	Session
+	AddComplexMessage(msg Message) // For messages with tool calls, etc.
 }
 
 // SessionStore handles conversation history persistence
@@ -139,7 +123,154 @@ type SessionFilter struct {
 	Offset int
 }
 
-// Session factory functions are now defined in agent.go to avoid duplication
+// sessionImpl is the internal implementation of Session
+type sessionImpl struct {
+	id       string
+	messages []Message
+	data     map[string]interface{}
+	mu       sync.RWMutex
+}
+
+// NewSession creates a new simplified session
+func NewSession(id string) Session {
+	return &sessionImpl{
+		id:       id,
+		messages: make([]Message, 0),
+		data:     make(map[string]interface{}),
+	}
+}
+
+// ID returns the session identifier
+func (s *sessionImpl) ID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.id
+}
+
+// Messages returns all messages in the session
+func (s *sessionImpl) Messages() []Message {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	
+	// Return a copy to prevent external modification
+	msgs := make([]Message, len(s.messages))
+	copy(msgs, s.messages)
+	return msgs
+}
+
+// AddMessage adds a new message to the session
+func (s *sessionImpl) AddMessage(role, content string) Message {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	msg := Message{
+		Role:      role,
+		Content:   content,
+		Timestamp: time.Now(),
+	}
+	
+	s.messages = append(s.messages, msg)
+	return msg
+}
+
+// GetData retrieves custom data by key
+func (s *sessionImpl) GetData(key string) interface{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.data[key]
+}
+
+// SetData stores custom data with a key
+func (s *sessionImpl) SetData(key string, value interface{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data[key] = value
+}
+
+// AddMessageWithMetadata adds a message with additional metadata
+// This is an internal helper method for advanced use cases
+func (s *sessionImpl) AddMessageWithMetadata(msg Message) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	if msg.Timestamp.IsZero() {
+		msg.Timestamp = time.Now()
+	}
+	
+	s.messages = append(s.messages, msg)
+}
+
+// AddComplexMessage implements SessionAdvanced interface for complex messages
+func (s *sessionImpl) AddComplexMessage(msg Message) {
+	s.AddMessageWithMetadata(msg)
+}
+
+// ClearMessages removes all messages from the session
+func (s *sessionImpl) ClearMessages() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.messages = make([]Message, 0)
+}
+
+// MessageCount returns the number of messages in the session
+func (s *sessionImpl) MessageCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.messages)
+}
+
+// LastMessage returns the most recent message or nil if empty
+func (s *sessionImpl) LastMessage() *Message {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	
+	if len(s.messages) == 0 {
+		return nil
+	}
+	
+	// Return a copy to prevent external modification
+	msg := s.messages[len(s.messages)-1]
+	return &msg
+}
+
+// GetMessagesByRole returns all messages with a specific role
+func (s *sessionImpl) GetMessagesByRole(role string) []Message {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	
+	var result []Message
+	for _, msg := range s.messages {
+		if msg.Role == role {
+			result = append(result, msg)
+		}
+	}
+	
+	return result
+}
+
+// Clone creates a deep copy of the session
+func (s *sessionImpl) Clone() Session {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	
+	clone := &sessionImpl{
+		id:       s.id,
+		messages: make([]Message, len(s.messages)),
+		data:     make(map[string]interface{}),
+	}
+	
+	// Deep copy messages
+	copy(clone.messages, s.messages)
+	
+	// Copy data map
+	for k, v := range s.data {
+		clone.data[k] = v
+	}
+	
+	return clone
+}
+
+// Message factory functions for convenience
 
 // NewMessage creates a new message with the given role and content
 func NewMessage(role, content string) Message {

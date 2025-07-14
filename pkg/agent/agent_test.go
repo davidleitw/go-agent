@@ -304,7 +304,7 @@ func TestInMemorySessionStore(t *testing.T) {
 
 	// Test creating and saving a session
 	session := NewSession("test-session")
-	session.AddUserMessage("Hello")
+	session.AddMessage(RoleUser, "Hello")
 
 	err := store.Save(ctx, session)
 	if err != nil {
