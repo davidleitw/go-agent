@@ -64,6 +64,178 @@ func main() {
 
 We break down complex AI agent functionality into several independent but well-coordinated modules:
 
+```
+┌─────────────┐    ┌─────────────────────────────────────┐    ┌─────────────┐
+│ User Input  │───▶│           Agent.Execute()            │───▶│   Response  │
+└─────────────┘    └─────────────────┬───────────────────┘    └─────────────┘
+                                     │
+                        ┌────────────▼────────────┐
+                        │  Step 1: Session Mgmt   │
+                        │    (handleSession)      │
+                        └────────────┬────────────┘
+                                     │
+                        ┌────────────▼────────────┐
+                        │ Step 2: Context Gather  │
+                        │   (gatherContexts)      │
+                        └────────────┬────────────┘
+                                     │
+               ┌─────────────────────┼─────────────────────┐
+               │                     │                     │
+        ┌──────▼──────┐    ┌─────────▼──────┐    ┌─────────▼──────┐
+        │System Prompt│    │    History     │    │    Custom      │
+        │  Provider   │    │   Provider     │    │  Providers     │
+        └─────────────┘    └────────────────┘    └────────────────┘
+                                     │
+                        ┌────────────▼────────────┐
+                        │ Step 3: Execute Loop    │
+                        │  (executeIterations)    │
+                        │                         │
+                        │  ┌─────────────────┐    │
+                        │  │ Build Messages  │    │
+                        │  └─────────┬───────┘    │
+                        │            │            │
+                        │  ┌─────────▼───────┐    │
+                        │  │  LLM Call       │◄───┼──── Tool Registry
+                        │  └─────────┬───────┘    │
+                        │            │            │
+                        │  ┌─────────▼───────┐    │
+                        │  │ Tool Execution  │    │
+                        │  └─────────┬───────┘    │
+                        │            │            │
+                        │        Iterate until    │
+                        │        completion       │
+                        └─────────────────────────┘
+                                     │
+                              ┌──────▼──────┐
+                              │   Session   │
+                              │   Storage   │
+                              │ (TTL mgmt)  │
+                              └─────────────┘
+```
+
+### Context Provider System - Our Unique Approach
+
+What makes go-agent special is our **unified Context management system**. Instead of simple string concatenation, we treat context as structured data that flows through the entire system.
+
+**The Provider Pattern:**
+Different providers contribute different types of context information, all unified into a consistent format that LLMs can understand:
+
+```go
+// System instructions  
+systemProvider := context.NewSystemPromptProvider("You are a helpful assistant")
+
+// Automatic conversation history - converts session entries to contexts
+historyProvider := context.NewHistoryProvider(10) // Last 10 entries
+
+// Custom provider that reads from session state
+type TaskContextProvider struct{}
+
+func (p *TaskContextProvider) Provide(ctx context.Context, s session.Session) []context.Context {
+    // Read current task from session state
+    if task, exists := s.Get("current_task"); exists {
+        return []context.Context{{
+            Type:    "task_context",
+            Content: fmt.Sprintf("Current task: %s", task),
+            Metadata: map[string]any{
+                "source": "session_state",
+                "key":    "current_task",
+            },
+        }}
+    }
+    return nil
+}
+
+// This is how it works in practice:
+session.Set("current_task", "Planning Tokyo trip")
+session.AddEntry(session.NewMessageEntry("user", "What's the weather like?"))
+session.AddEntry(session.NewToolCallEntry("weather", map[string]any{"city": "Tokyo"}))
+session.AddEntry(session.NewToolResultEntry("weather", "22°C, sunny", nil))
+
+// When HistoryProvider runs, it converts session entries to contexts:
+// - Message entries → user/assistant contexts  
+// - Tool call entries → "Tool: weather\nParameters: {city: Tokyo}"
+// - Tool result entries → "Tool: weather\nSuccess: true\nResult: 22°C, sunny"
+// - TaskContextProvider reads session.Get("current_task") → "Current task: Planning Tokyo trip"
+
+agent, _ := agent.NewBuilder().
+    WithLLM(model).
+    WithContextProviders(systemProvider, historyProvider, &TaskContextProvider{}).
+    Build()
+```
+
+**Key Benefits:**
+- **Automatic History Management**: Session conversations are automatically converted to context
+- **Rich Metadata**: Every context piece includes metadata for debugging and analytics
+- **TTL Integration**: Context providers work seamlessly with session expiration
+- **Extensible**: Easy to add new context sources (databases, APIs, files, etc.)
+
+This approach makes "Context is Everything" not just a philosophy, but a practical implementation that scales from simple chatbots to complex multi-modal agents.
+
+### Context vs Session - Key Concept Clarification
+
+It's important to understand the distinction between these two core concepts:
+
+**Context** = Information ingredients (short-lived, stateless)
+- Assembled fresh for each execution
+- Used to build LLM prompts
+- Examples: system instructions, recent messages, current user preferences
+
+**Session** = State container (persistent, stateful)  
+- Persists across multiple executions
+- Stores conversation history and variables
+- Examples: user settings, conversation history, TTL management
+
+Here's how contexts are dynamically assembled for each request:
+
+```
+┌─ Step 1: Session Management ─────────────────────────────────────────┐
+│ 🚀 User Input: "What's the best time to visit Tokyo?"               │
+│ 💾 Session Lookup: Load session "user-123"                          │
+│ Found: current_task="Planning Tokyo trip", 3 previous messages      │
+└─────────────────────────────────────────────────────────────────────┘
+                                   │
+┌─ Step 2: Context Assembly ───────────────────────────────────────────┐
+│ ⚡ Gather from all providers:                                        │
+│                                                                      │
+│ 🎯 System Provider →                                                 │
+│   Context: "You are a helpful travel assistant."                    │
+│                                                                      │
+│ 📋 Task Provider (from session state) →                             │
+│   Context: "Current task: Planning Tokyo trip"                      │
+│                                                                      │
+│ 📜 History Provider (from session entries) →                        │
+│   Context: "user: I want to plan a Tokyo trip"                      │
+│   Context: "assistant: Great! I'd love to help you plan."           │
+│   Context: "user: My budget is $3000"                               │
+│                                                                      │
+│ 🔗 Result: 5 contexts ready for LLM                                 │
+└─────────────────────────────────────────────────────────────────────┘
+                                   │
+┌─ Step 3: LLM Prompt Construction ────────────────────────────────────┐
+│ 🤖 Combined into LLM messages:                                      │
+│                                                                      │
+│ [                                                                    │
+│   {role: "system", content: "You are a helpful travel assistant."}  │
+│   {role: "system", content: "Current task: Planning Tokyo trip"}    │
+│   {role: "user", content: "I want to plan a Tokyo trip"}           │
+│   {role: "assistant", content: "Great! I'd love to help you plan."} │
+│   {role: "user", content: "My budget is $3000"}                     │
+│   {role: "user", content: "What's the best time to visit Tokyo?"}   │
+│ ]                                                                    │
+│                                                                      │
+│ 💬 LLM Response: "The best time to visit Tokyo is..."               │
+└─────────────────────────────────────────────────────────────────────┘
+                                   │
+┌─ Step 4: Session Update ─────────────────────────────────────────────┐
+│ 💾 Save to session history:                                         │
+│   - New user message: "What's the best time to visit Tokyo?"        │
+│   - New assistant response: "The best time to visit Tokyo is..."    │
+│ 🔄 Session now has 5 total messages for next interaction            │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+The beauty is that **Context** is assembled fresh each time from the persistent **Session** state, ensuring both consistency and flexibility.
+
 ### [Agent Module](./agent/) - Core Controller
 This is the brain of the framework, coordinating all other modules. Provides a simple `Execute()` interface and flexible Builder pattern for easy configuration.
 
