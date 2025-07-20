@@ -1,40 +1,28 @@
 # go-agent
 
 <div align="center">
-  <img src="docs/images/gopher.png" alt="Go Agent" width="200" height="200">
+  <img src="docs/images/gopher.png" alt="Go Agent Mascot" width="300"/>
+  
+  [![English](https://img.shields.io/badge/README-English-blue.svg)](README.md) [![繁體中文](https://img.shields.io/badge/README-繁體中文-red.svg)](README-zh.md)
 </div>
 
-[![English](https://img.shields.io/badge/README-English-blue.svg)](README.md) [![繁體中文](https://img.shields.io/badge/README-繁體中文-red.svg)](README-zh.md)
+A clean yet feature-complete AI agent framework for Go. We designed this framework to be easy to get started with while maintaining high extensibility, allowing you to quickly integrate AI agent capabilities into your Go projects.
 
-A lightweight Go AI agent framework focused on building intelligent conversations and automated workflows.
+## Why go-agent?
 
-> ⚠️ **Early Development Stage**: This framework is currently in early development. APIs may change frequently as we refine the interfaces based on user feedback. We plan to stabilize the API after the v0.1.0 release. Use with caution in production environments.
+While there are several excellent agent frameworks available, we wanted to create something with a focus on simplicity and Go-idiomatic design. Our design philosophy is "Context is Everything" + **Easy to Start, Easy to Scale**:
 
-## Development Status
+**Easy to Start:**
+- Get going with just one `Execute()` method
+- Clear module responsibilities - no need to understand the entire framework
+- Rich examples and documentation that you can follow immediately
 
-**Current Stage**: Early Development (Pre-v0.1.0)
-- ✅ Core functionality implemented and tested
-- ⚠️ APIs may change based on user feedback
-- 🔄 Interface optimization ongoing
-- 📋 Planned API stabilization after v0.1.0
-
-We welcome feedback and suggestions as we work toward a stable release.
-
-## Why choose go-agent
-
-go-agent provides intuitive interfaces for building AI applications. The framework focuses on minimal configuration: provide an API key, create an agent, and start conversing.
-
-The design prioritizes simplicity for common use cases while maintaining flexibility for complex scenarios. Creating a basic chatbot requires minimal code.
+**Highly Extensible:**
+- Modular design - use only what you need
+- Clear interface definitions make custom implementations easy
+- Open Provider pattern allows integration with any data source
 
 ## Quick Start
-
-First, install go-agent:
-
-```bash
-go get github.com/davidleitw/go-agent
-```
-
-Create your first AI agent:
 
 ```go
 package main
@@ -42,502 +30,306 @@ package main
 import (
     "context"
     "fmt"
-    "os"
-
-    "github.com/davidleitw/go-agent/pkg/agent"
-    "github.com/davidleitw/go-agent/internal/llm"
+    "log"
+    
+    "github.com/davidleitw/go-agent/agent"
+    "github.com/davidleitw/go-agent/llm/openai"
 )
 
 func main() {
-    // Create OpenAI chat model
-    chatModel, err := llm.NewOpenAIChatModel(os.Getenv("OPENAI_API_KEY"))
-    if err != nil {
-        panic(err)
-    }
-
-    // Create an AI agent
-    assistant, err := agent.NewBasicAgent(agent.BasicAgentConfig{
-        Name:         "helpful-assistant",
-        Description:  "A helpful AI assistant",
-        Instructions: "You are a helpful assistant. Be concise and friendly.",
-        Model:        "gpt-4o-mini",
-        ChatModel:    chatModel,
+    // Create LLM model
+    model := openai.New(llm.Config{
+        APIKey: "your-openai-key",
+        Model:  "gpt-4",
     })
-    if err != nil {
-        panic(err)
-    }
-
-    // Create a session for the conversation
-    session := agent.NewSession("chat-session-1")
     
-    // Start chatting
-    response, _, err := assistant.Chat(context.Background(), session, "Hello! How are you today?")
+    // Create simple agent
+    myAgent := agent.NewSimpleAgent(model)
+    
+    // Start conversation
+    response, err := myAgent.Execute(context.Background(), agent.Request{
+        Input: "Plan a 3-day trip to Tokyo for me",
+    })
+    
     if err != nil {
-        panic(err)
+        log.Fatal(err)
     }
-
-    fmt.Println("Assistant:", response.Content)
+    
+    fmt.Println(response.Output)
+    fmt.Printf("Used %d tokens\n", response.Usage.LLMTokens.TotalTokens)
 }
 ```
 
-The framework provides explicit session management for better control and testability.
+## Framework Architecture
 
-## Core Features
+We break down complex AI agent functionality into several independent but well-coordinated modules:
 
-### Tool Integration
-
-**When to use**: When agents need to perform external operations like API calls, calculations, or data processing.
-
-Tools enable agents to interact with external systems. Define tools using simple function syntax:
-
-```go
-// Create a weather query tool
-weatherTool := &WeatherTool{}
-
-// Create OpenAI chat model
-chatModel, err := llm.NewOpenAIChatModel(apiKey)
-if err != nil {
-    panic(err)
-}
-
-// Create an agent with tool capabilities
-weatherAgent, err := agent.NewBasicAgent(agent.BasicAgentConfig{
-    Name:         "weather-assistant",
-    Description:  "An assistant that provides weather information",
-    Instructions: "You can help users get weather information using tools.",
-    Model:        "gpt-4o-mini",
-    Tools:        []agent.Tool{weatherTool},
-    ChatModel:    chatModel,
-})
-
-// Use the agent with a session
-session := agent.NewSession("weather-chat")
-response, _, err := weatherAgent.Chat(ctx, session, "What's the weather in Tokyo?")
+```
+┌─────────────┐    ┌─────────────────────────────────────┐    ┌─────────────┐
+│ User Input  │───▶│           Agent.Execute()            │───▶│   Response  │
+└─────────────┘    └─────────────────┬───────────────────┘    └─────────────┘
+                                     │
+                        ┌────────────▼────────────┐
+                        │  Step 1: Session Mgmt   │
+                        │    (handleSession)      │
+                        └────────────┬────────────┘
+                                     │
+                        ┌────────────▼────────────┐
+                        │ Step 2: Context Gather  │
+                        │   (gatherContexts)      │
+                        └────────────┬────────────┘
+                                     │
+               ┌─────────────────────┼─────────────────────┐
+               │                     │                     │
+        ┌──────▼──────┐    ┌─────────▼──────┐    ┌─────────▼──────┐
+        │System Prompt│    │    History     │    │    Custom      │
+        │  Provider   │    │   Provider     │    │  Providers     │
+        └─────────────┘    └────────────────┘    └────────────────┘
+                                     │
+                        ┌────────────▼────────────┐
+                        │ Step 3: Execute Loop    │
+                        │  (executeIterations)    │
+                        │                         │
+                        │  ┌─────────────────┐    │
+                        │  │ Build Messages  │    │
+                        │  └─────────┬───────┘    │
+                        │            │            │
+                        │  ┌─────────▼───────┐    │
+                        │  │  LLM Call       │◄───┼──── Tool Registry
+                        │  └─────────┬───────┘    │
+                        │            │            │
+                        │  ┌─────────▼───────┐    │
+                        │  │ Tool Execution  │    │
+                        │  └─────────┬───────┘    │
+                        │            │            │
+                        │        Iterate until    │
+                        │        completion       │
+                        └─────────────────────────┘
+                                     │
+                              ┌──────▼──────┐
+                              │   Session   │
+                              │   Storage   │
+                              │ (TTL mgmt)  │
+                              └─────────────┘
 ```
 
-The framework automatically generates JSON Schema, handles parameter validation, and manages tool execution flow.
+### Context Provider System - Our Unique Approach
 
-**Complete example**: [Calculator Tool Example](./examples/calculator-tool/)
+What makes go-agent special is our **unified Context management system**. Instead of simple string concatenation, we treat context as structured data that flows through the entire system.
 
-### Structured Output
-
-**When to use**: When you need agents to return data in specific formats for downstream processing.
-
-Define structured output using Go structs:
+**The Provider Pattern:**
+Different providers contribute different types of context information, all unified into a consistent format that LLMs can understand:
 
 ```go
-// Define your desired output format
-type TaskResult struct {
-    Title    string   `json:"title"`
-    Priority string   `json:"priority"`
-    Tags     []string `json:"tags"`
-}
+// System instructions  
+systemProvider := context.NewSystemPromptProvider("You are a helpful assistant")
 
-// Create output type
-outputType := &TaskResultOutputType{}
+// Automatic conversation history - converts session entries to contexts
+historyProvider := context.NewHistoryProvider(10) // Last 10 entries
 
-// Create an agent that returns structured data
-chatModel, _ := llm.NewOpenAIChatModel(apiKey)
-taskAgent, err := agent.NewBasicAgent(agent.BasicAgentConfig{
-    Name:         "task-creator",
-    Description:  "Creates structured task data",
-    Instructions: "Create tasks based on user input, return structured JSON data.",
-    Model:        "gpt-4o-mini", 
-    OutputType:   outputType,
-    ChatModel:    chatModel,
-})
+// Custom provider that reads from session state
+type TaskContextProvider struct{}
 
-// Conversations automatically return parsed structures
-session := agent.NewSession("task-session")
-response, structuredOutput, err := taskAgent.Chat(ctx, session, "Create a high priority code review task")
-if taskResult, ok := structuredOutput.(*TaskResult); ok {
-    fmt.Printf("Created task: %s (Priority: %s)\n", taskResult.Title, taskResult.Priority)
-}
-```
-
-The framework automatically generates JSON Schema, validates AI output, and parses responses into Go structs.
-
-**Complete example**: [Task Completion Example](./examples/task-completion/)
-
-### Schema-Based Information Collection
-
-**When to use**: When you need to collect structured data from users across conversation turns, such as form filling, user onboarding, or support ticket creation.
-
-The schema system automatically extracts information from user messages and manages collection state. This eliminates manual state management and provides natural conversation flow.
-
-#### Basic Schema Definition
-
-```go
-import "github.com/davidleitw/go-agent/pkg/schema"
-
-// Required fields (default)
-emailField := schema.Define("email", "Please provide your email address")
-issueField := schema.Define("issue", "Please describe your issue")
-
-// Optional fields
-phoneField := schema.Define("phone", "Contact number for urgent matters").Optional()
-```
-
-#### Applying Schema to Conversations
-
-```go
-chatModel, _ := llm.NewOpenAIChatModel(apiKey)
-supportBot, err := agent.NewBasicAgent(agent.BasicAgentConfig{
-    Name:         "support-agent",
-    Description:  "Customer support assistant",
-    Instructions: "You are a customer support assistant.",
-    Model:        "gpt-4o-mini",
-    ChatModel:    chatModel,
-})
-
-session := agent.NewSession("support-session")
-response, structuredOutput, err := supportBot.Chat(ctx, session, "I need help with my account",
-    agent.WithSchema(
-        schema.Define("email", "Please provide your email address"),
-        schema.Define("issue", "Please describe your issue in detail"),
-        schema.Define("urgency", "How urgent is this?").Optional(),
-    ),
-)
-```
-
-The framework intelligently:
-- **Extracts** information from user messages using LLM semantic understanding
-- **Identifies** missing required fields automatically  
-- **Asks** for missing information using natural, contextual prompts
-- **Remembers** collected information across conversation turns
-- **Adapts** to different conversation styles and user input patterns
-
-#### Dynamic Schema Selection
-
-**When to use**: When different conversation types require different information (e.g., support requests vs. sales inquiries).
-
-```go
-func getSchemaForIntent(intent string) []*schema.Field {
-    switch intent {
-    case "technical_support":
-        return []*schema.Field{
-            schema.Define("email", "Email for technical follow-up"),
-            schema.Define("error_message", "What error are you seeing?"),
-            schema.Define("steps_taken", "What have you tried?"),
-        }
-    case "billing_inquiry":
-        return []*schema.Field{
-            schema.Define("email", "Account email address"),
-            schema.Define("account_id", "Your account number"),
-            schema.Define("billing_question", "Billing question details"),
-        }
+func (p *TaskContextProvider) Provide(ctx context.Context, s session.Session) []context.Context {
+    // Read current task from session state
+    if task, exists := s.Get("current_task"); exists {
+        return []context.Context{{
+            Type:    "task_context",
+            Content: fmt.Sprintf("Current task: %s", task),
+            Metadata: map[string]any{
+                "source": "session_state",
+                "key":    "current_task",
+            },
+        }}
     }
+    return nil
 }
 
-// Apply schema based on detected intent
-intent := detectIntent(userInput)
-schema := getSchemaForIntent(intent)
-session := agent.NewSession("dynamic-session")
-response, structuredOutput, err := agent.Chat(ctx, session, userInput, agent.WithSchema(schema...))
-```
+// This is how it works in practice:
+session.Set("current_task", "Planning Tokyo trip")
+session.AddEntry(session.NewMessageEntry("user", "What's the weather like?"))
+session.AddEntry(session.NewToolCallEntry("weather", map[string]any{"city": "Tokyo"}))
+session.AddEntry(session.NewToolResultEntry("weather", "22°C, sunny", nil))
 
-#### Multi-Step Workflows
+// When HistoryProvider runs, it converts session entries to contexts:
+// - Message entries → user/assistant contexts  
+// - Tool call entries → "Tool: weather\nParameters: {city: Tokyo}"
+// - Tool result entries → "Tool: weather\nSuccess: true\nResult: 22°C, sunny"
+// - TaskContextProvider reads session.Get("current_task") → "Current task: Planning Tokyo trip"
 
-**When to use**: For complex forms or processes that should be broken into logical steps.
-
-```go
-func getTechnicalSupportWorkflow() [][]*schema.Field {
-    return [][]*schema.Field{
-        { // Step 1: Contact info
-            schema.Define("email", "Your email address"),
-            schema.Define("issue_summary", "Brief issue description"),
-        },
-        { // Step 2: Technical details
-            schema.Define("error_message", "Exact error message"),
-            schema.Define("browser", "Browser and version"),
-        },
-        { // Step 3: Impact assessment
-            schema.Define("urgency", "How critical is this?"),
-            schema.Define("affected_users", "How many users affected?"),
-        },
-    }
-}
-```
-
-**Complete examples**: 
-- [Simple Schema Example](./examples/simple-schema/) - Basic usage
-- [Customer Support Example](./examples/customer-support/) - Real-world scenarios  
-- [Dynamic Schema Example](./examples/dynamic-schema/) - Advanced workflows
-
-### Conditional Flow Control
-
-**When to use**: When you need agents to respond differently based on conversation context, user state, or external conditions.
-
-Flow control enables dynamic agent behavior through conditions and rules. This is essential for creating intelligent, context-aware conversations.
-
-#### Built-in Conditions
-
-Common conditions for typical conversation scenarios:
-
-```go
-import "github.com/davidleitw/go-agent/pkg/conditions"
-
-// Text-based conditions
-conditions.Contains("help")      // User message contains "help"
-conditions.Count(5)              // Conversation has 5+ messages
-conditions.Missing("email", "name") // Required fields are missing
-conditions.DataEquals("status", "urgent") // Data field has specific value
-
-// Custom function conditions
-conditions.Func("custom_check", func(session conditions.Session) bool {
-    // Custom logic here
-    return len(session.Messages()) > 3
-})
-```
-
-#### Custom Conditions
-
-Implement the `Condition` interface for complex logic:
-
-```go
-type BusinessHoursCondition struct{}
-
-func (c *BusinessHoursCondition) Name() string {
-    return "business_hours"
-}
-
-func (c *BusinessHoursCondition) Evaluate(ctx context.Context, session conditions.Session, data map[string]interface{}) (bool, error) {
-    now := time.Now()
-    hour := now.Hour()
-    return hour >= 9 && hour <= 17, nil
-}
-
-// Use custom condition
-businessRule := agent.FlowRule{
-    Name:      "office_hours_response",
-    Condition: &BusinessHoursCondition{},
-    Action: agent.FlowAction{
-        NewInstructionsTemplate: "You can provide full support during business hours.",
-    },
-}
-```
-
-#### Combining Conditions
-
-```go
-// Logical operators
-conditions.And(conditions.Contains("urgent"), conditions.Missing("phone"))
-conditions.Or(conditions.Contains("help"), conditions.Contains("support"))
-conditions.Not(conditions.Missing("email"))
-
-// Complex condition combinations
-complexCondition := conditions.And(
-    conditions.Or(conditions.Contains("billing"), conditions.Contains("payment")),
-    conditions.Missing("account_id"),
-    conditions.Count(2),
-)
-
-// Fluent interface for building complex conditions
-complexCondition := conditions.Contains("support").
-    And(conditions.Missing("email")).
-    Or(conditions.Count(5)).
+agent, _ := agent.NewBuilder().
+    WithLLM(model).
+    WithContextProviders(systemProvider, historyProvider, &TaskContextProvider{}).
     Build()
 ```
 
-**Complete examples**:
-- [Condition Testing Example](./examples/condition-testing/) - Basic flow control
-- [Advanced Conditions Example](./examples/advanced-conditions/) - Complex scenarios
+**Key Benefits:**
+- **Automatic History Management**: Session conversations are automatically converted to context
+- **Rich Metadata**: Every context piece includes metadata for debugging and analytics
+- **TTL Integration**: Context providers work seamlessly with session expiration
+- **Extensible**: Easy to add new context sources (databases, APIs, files, etc.)
 
-## Core Design Philosophy
+This approach makes "Context is Everything" not just a philosophy, but a practical implementation that scales from simple chatbots to complex multi-modal agents.
 
-The framework design follows these principles:
+### Context vs Session - Key Concept Clarification
 
-**Simplicity for common cases**: Basic functionality requires minimal configuration. Essential operations like creating agents and managing conversations use straightforward APIs.
+It's important to understand the distinction between these two core concepts:
 
-**Flexibility for complex scenarios**: Advanced features including multi-tool coordination, conditional flows, and structured output are available through composable interfaces.
+**Context** = Information ingredients (short-lived, stateless)
+- Assembled fresh for each execution
+- Used to build LLM prompts
+- Examples: system instructions, recent messages, current user preferences
 
-**Automatic infrastructure management**: Session management, tool execution, and error handling operate without manual intervention.
+**Session** = State container (persistent, stateful)  
+- Persists across multiple executions
+- Stores conversation history and variables
+- Examples: user settings, conversation history, TTL management
 
-### Architecture Components
+Here's how contexts are dynamically assembled for each request:
 
-The framework consists of several main parts:
-
-**Agent**: Core interface for conversation handling. Create using `agent.New()` or implement custom logic through the `Agent` interface.
-
-**Session**: Manages conversation history and state. Automatic persistence and retrieval across conversation turns.
-
-**Tools**: Enable external operations through the `Tool` interface. Convert functions to tools using `agent.NewTool()`.
-
-**Conditions**: Flow control through the `conditions` package. Built-in conditions available for common scenarios including text matching, field validation, and message counting.
-
-**Schema**: Information collection through the `schema` package. Automatic extraction and validation of structured data.
-
-**Chat Models**: LLM provider abstraction. Supports OpenAI with additional providers in development.
-
-## Supported LLM Providers
-
-Currently mainly supports OpenAI models, including GPT-4, GPT-4o, GPT-3.5-turbo, etc. We're actively developing support for other providers:
-
-**Supported**: OpenAI (full support, including function calling and structured output)
-
-**In Development**: Anthropic Claude, Google Gemini, local models (via Ollama)
-
-## Session Management
-
-### Session Interface (v0.0.2+)
-
-The Session interface has been simplified for better usability and performance:
-
-```go
-type Session interface {
-    ID() string
-    Messages() []Message
-    AddMessage(role, content string) Message
-    GetData(key string) interface{}
-    SetData(key string, value interface{})
-}
+```mermaid
+flowchart TD
+    A["🚀 User Request<br/><small>Input: 'Plan Tokyo trip'</small>"] --> B["💾 Session Lookup<br/><small>Load existing conversation</small>"]
+    
+    B --> C["⚡ Context Assembly<br/><small>Gather all providers</small>"]
+    
+    C --> D["🎯 System Provider<br/><small>'You are a helpful assistant'</small>"]
+    C --> E["📜 History Provider<br/><small>Last 10 conversation entries</small>"]
+    C --> F["📋 Task Provider<br/><small>current_task: 'Planning Tokyo trip'</small>"]
+    
+    D --> G["🔗 Unified Context Array<br/><small>All contexts combined</small>"]
+    E --> G
+    F --> G
+    
+    G --> H["🤖 LLM Processing<br/><small>Build prompt + call model</small>"]
+    H --> I["💬 Agent Response<br/><small>Generated answer</small>"]
+    I --> J["💾 Update Session<br/><small>Save new entries to history</small>"]
+    
+    style A fill:#e1f5fe
+    style G fill:#f3e5f5
+    style H fill:#fff3e0
+    style I fill:#e8f5e8
+    style J fill:#fce4ec
 ```
 
-### Basic Session Usage
+The beauty is that **Context** is assembled fresh each time from the persistent **Session** state, ensuring both consistency and flexibility.
 
-```go
-// Create a new session
-session := agent.NewSession("my-session-id")
+### [Agent Module](./agent/) - Core Controller
+This is the brain of the framework, coordinating all other modules. Provides a simple `Execute()` interface and flexible Builder pattern for easy configuration.
 
-// Add messages of different types
-session.AddMessage(agent.RoleUser, "Hello!")
-session.AddMessage(agent.RoleAssistant, "Hi there! How can I help?")
-session.AddMessage(agent.RoleSystem, "User authenticated successfully")
+**Key Features:**
+- Clean Agent interface - one method does everything
+- Builder pattern makes configuration intuitive
+- Automatic session management - no state worries
+- Built-in convenience functions for common patterns
 
-// Store arbitrary data with the session
-session.SetData("user_id", "user_12345")
-session.SetData("preferences", map[string]string{"theme": "dark"})
+### [Session Module](./session/) - Memory Management
+Handles conversation state and history. Supports TTL auto-expiration, concurrent safety, and complete JSON serialization.
 
-// Retrieve session data
-userID := session.GetData("user_id").(string)
-prefs := session.GetData("preferences").(map[string]string)
+**Key Features:**
+- Key-Value state storage for any data type
+- Unified history format supporting multiple conversation types
+- Automatic TTL management with expired session cleanup
+- Thread-safe for multi-goroutine usage
 
-// Access conversation history
-messages := session.Messages()
-fmt.Printf("Conversation has %d messages\n", len(messages))
-```
+### [Context Module](./context/) - Information Aggregation
+This module's job is to package information from various sources (conversation history, system prompts, external data, etc.) into a unified format that LLMs can understand.
 
-### Thread-Safe Operations
+**Key Features:**
+- Unified Context data structure
+- Extensible Provider system
+- Automatic Session history to Context conversion
+- Rich Metadata support
 
-All session operations are thread-safe and can be used safely from multiple goroutines:
+### [Tool Module](./tool/) - Tool Integration
+Enables your AI agents to call external functions like database queries, API calls, calculations, etc.
 
-```go
-// Concurrent message addition is safe
-go func() {
-    session.AddMessage(agent.RoleUser, "Message from goroutine 1")
-}()
+**Key Features:**
+- Simple Tool interface - easy to implement custom tools
+- JSON Schema-based parameter definitions
+- Thread-safe tool registry
+- Complete error handling mechanisms
 
-go func() {
-    session.AddMessage(agent.RoleUser, "Message from goroutine 2")
-}()
-```
+### [LLM Module](./llm/) - Language Model Interface
+Provides unified language model interface. Currently supports OpenAI, with plans to expand to other providers.
 
-### Session Cloning
+**Key Features:**
+- Clear Model interface
+- Built-in tool calling support
+- Complete token usage tracking
+- Support for custom endpoints and proxies
 
-Sessions support cloning for branching conversations:
+## Current Development Status
 
-```go
-// Clone a session for different conversation paths
-if cloneable, ok := session.(interface{ Clone() Session }); ok {
-    branchedSession := cloneable.Clone()
-    // Now you have two independent sessions
-}
-```
+**Ready to Use:**
+- Complete module interface design and implementation
+- Session management with TTL support
+- Context provider system
+- Tool registration and execution framework
+- OpenAI integration
+- Rich test coverage
 
-**Complete example**: [Session Management Example](./examples/session-management/)
+**In Development:**
+- Agent core execution logic (LLM calls, tool orchestration, iterative thinking, etc.)
+- More LLM provider support
+- Streaming response support
+- More built-in tools and examples
 
-### Session Storage
+**Future Plans:**
+- Redis/Database Session storage
+- Asynchronous tool execution
+- Advanced Context management features
+- MCP (Model Context Protocol) tool integration
 
-The framework comes with in-memory session storage, suitable for development and testing. For production environments, we're developing Redis and PostgreSQL backend support.
+## Design Philosophy
 
-```go
-// Use in-memory session store (default)
-sessionStore := agent.NewInMemorySessionStore()
+### "Context is Everything"
+We believe the core of AI agents is context management. Whether it's conversation history, user preferences, external data, or tool execution results, everything needs to be provided to LLMs in a consistent way.
 
-// Create agent with custom session store
-agent, err := agent.NewBasicAgent(agent.BasicAgentConfig{
-    Name:         "my-agent",
-    ChatModel:    chatModel,
-    SessionStore: sessionStore,
-})
-```
+We're planning to organize talks and compile resources about Context Engineering to help the community better understand this approach.
 
-For most applications, in-memory storage is sufficient. You can always implement your own storage backend by implementing the `SessionStore` interface.
+## Contributing
 
-## Examples
+This project is under active development, and we welcome all forms of participation:
 
-We've prepared complete examples in the [`examples/`](./examples/) directory, each is a directly executable Go program.
+**Interface Design Discussion (Most Important!):**
+- Think some interface design isn't intuitive enough?
+- Have better API design ideas?
+- Feel some functionality abstraction levels are wrong?
+- Want a module to provide different usage patterns?
 
-### Quick Setup
+We deeply believe good interface design is key to framework success - any friends with interface ideas are very welcome to discuss!
 
-First, set up your OpenAI API key:
+**Feature Suggestions:**
+- What new features would you like to see?
+- What usage difficulties have you encountered?
+- What real-world scenarios haven't we considered?
 
-```bash
-# Copy the example environment file
-cp .env.example .env
+**Code Contributions:**
+- Implement new LLM providers
+- Build more practical tools
+- Improve performance and stability
+- Add more tests and examples
 
-# Edit .env and add your OpenAI API key
-```
+**Documentation and Examples:**
+- Write usage tutorials
+- Create real-world application examples
+- Translate documentation
 
-### Main Examples
+Feel free to open Issues for discussion or submit PRs directly. We're happy to work together to make this framework better.
 
-**Basic Chat (basic-chat)**: The simplest starting point, showing how to create a chatbot with just a few lines of code.
+## Getting Started
 
-**Calculator Tool (calculator-tool)**: Shows how to let agents use tools, this example creates an assistant that can do math.
+1. **Check Module Documentation**: Each folder has detailed READMEs - suggest starting with [Agent Module](./agent/)
+2. **Run Tests**: `go test ./...` to see if everything works
+3. **Join Discussion**: Open Issues with questions or ideas
 
-**Advanced Conditions (advanced-conditions)**: Shows intelligent flow control where agents automatically adjust behavior based on conversation state. This is our most recommended example, showcasing the framework's powerful features.
+## License
 
-**Multi-Tool Agent (multi-tool-agent)**: Shows how to let one agent use multiple tools simultaneously, intelligently selecting appropriate tools to complete tasks.
+MIT License - Use it however you want, but we're not responsible for any losses.
 
-**Task Completion (task-completion)**: Shows structured output and condition validation, simulating a restaurant reservation system.
+---
 
-**Simple Schema (simple-schema)**: Demonstrates basic schema-based information collection, showing how to define required and optional fields for automatic data gathering.
+**Project Status: Under Active Development** | **Last Updated: 2024**
 
-**Customer Support (customer-support)**: Real-world example showing how to build a professional customer support bot with intelligent information collection across different support scenarios.
-
-**Dynamic Schema (dynamic-schema)**: Advanced example demonstrating dynamic schema selection based on user intent, multi-step workflows, and complex conversation management.
-
-Each example has detailed README instructions on how to run and key learning points. We recommend starting with basic-chat, then trying simple-schema to understand information collection, followed by advanced-conditions for flow control.
-
-## Common Issues
-
-If you encounter problems, check these first:
-
-**API Key Configuration Error**: Make sure your `.env` file has the correct `OPENAI_API_KEY`
-
-**Import Errors**: Make sure you're running in the correct directory and using `github.com/davidleitw/go-agent/pkg/agent`
-
-**Module Issues**: Run `go mod tidy` in the example directory
-
-All examples have detailed log output to help you track execution flow and errors.
-
-## Development
-
-If you want to participate in development or customize the framework:
-
-```bash
-# Run tests
-make test
-
-# Code linting
-make lint
-
-# Build project
-make build
-```
-
-Requires Go 1.22 or newer.
-
-## Future Plans
-
-We're currently developing these features:
-
-More LLM provider support (Anthropic, Google, etc.), production-grade storage backends (Redis, PostgreSQL), streaming responses, multi-agent coordination, monitoring and observability features.
-
-If you have specific needs or ideas, feel free to discuss them in [GitHub Issues](https://github.com/davidleitw/go-agent/issues).
-
-## Summary
-
-go-agent's goal is to enable Go developers to quickly build AI applications without needing to deeply understand the details of various LLM APIs. We believe good frameworks should make common tasks simple and complex tasks possible.
-
-If you're considering adding AI features to your Go project, give go-agent a try. Start with a simple chatbot, and when you need more features, the framework will grow with your needs.
+Looking forward to seeing what interesting things you build with this framework!
