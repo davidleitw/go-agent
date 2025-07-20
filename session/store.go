@@ -1,6 +1,9 @@
 package session
 
-import "errors"
+import (
+	"context"
+	"errors"
+)
 
 // Common errors
 var (
@@ -9,10 +12,10 @@ var (
 
 // SessionStore manages session persistence
 type SessionStore interface {
-	Create(opts ...CreateOption) Session
-	Get(id string) (Session, error)
-	Save(session Session) error
-	Delete(id string) error
-	DeleteExpired() error
+	Create(ctx context.Context, opts ...CreateOption) Session
+	Get(ctx context.Context, id string) (Session, error)
+	Save(ctx context.Context, session Session) error
+	Delete(ctx context.Context, id string) error
+	DeleteExpired(ctx context.Context) error
 	Close() error
 }

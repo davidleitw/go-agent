@@ -1,6 +1,7 @@
 package context
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -14,10 +15,10 @@ func TestSystemPromptProvider(t *testing.T) {
 	store := memory.NewStore()
 	defer store.Close()
 	
-	sess := store.Create()
+	sess := store.Create(context.Background())
 	provider := NewSystemPromptProvider("You are a helpful assistant.")
 	
-	contexts := provider.Provide(sess)
+	contexts := provider.Provide(context.Background(), sess)
 	
 	if len(contexts) != 1 {
 		t.Errorf("Expected 1 context, got %d", len(contexts))
@@ -41,10 +42,10 @@ func TestHistoryProvider_EmptyHistory(t *testing.T) {
 	store := memory.NewStore()
 	defer store.Close()
 	
-	sess := store.Create()
+	sess := store.Create(context.Background())
 	provider := NewHistoryProvider(10)
 	
-	contexts := provider.Provide(sess)
+	contexts := provider.Provide(context.Background(), sess)
 	
 	if len(contexts) != 0 {
 		t.Errorf("Expected 0 contexts for empty history, got %d", len(contexts))
@@ -55,7 +56,7 @@ func TestHistoryProvider_MessageEntries(t *testing.T) {
 	store := memory.NewStore()
 	defer store.Close()
 	
-	sess := store.Create()
+	sess := store.Create(context.Background())
 	
 	// Add message entries
 	sess.AddEntry(session.NewMessageEntry("user", "Hello"))
@@ -65,7 +66,7 @@ func TestHistoryProvider_MessageEntries(t *testing.T) {
 	sess.AddEntry(session.NewMessageEntry("system", "System message"))
 	
 	provider := NewHistoryProvider(10)
-	contexts := provider.Provide(sess)
+	contexts := provider.Provide(context.Background(), sess)
 	
 	if len(contexts) != 3 {
 		t.Errorf("Expected 3 contexts, got %d", len(contexts))
@@ -102,7 +103,7 @@ func TestHistoryProvider_ToolCallEntries(t *testing.T) {
 	store := memory.NewStore()
 	defer store.Close()
 	
-	sess := store.Create()
+	sess := store.Create(context.Background())
 	
 	params := map[string]any{
 		"query": "test",
@@ -111,7 +112,7 @@ func TestHistoryProvider_ToolCallEntries(t *testing.T) {
 	sess.AddEntry(session.NewToolCallEntry("search", params))
 	
 	provider := NewHistoryProvider(10)
-	contexts := provider.Provide(sess)
+	contexts := provider.Provide(context.Background(), sess)
 	
 	if len(contexts) != 1 {
 		t.Errorf("Expected 1 context, got %d", len(contexts))
@@ -139,7 +140,7 @@ func TestHistoryProvider_ToolResultEntries(t *testing.T) {
 	store := memory.NewStore()
 	defer store.Close()
 	
-	sess := store.Create()
+	sess := store.Create(context.Background())
 	
 	// Test successful tool result
 	result := []string{"result1", "result2"}
@@ -150,7 +151,7 @@ func TestHistoryProvider_ToolResultEntries(t *testing.T) {
 		&testError{msg: "connection failed"}))
 	
 	provider := NewHistoryProvider(10)
-	contexts := provider.Provide(sess)
+	contexts := provider.Provide(context.Background(), sess)
 	
 	if len(contexts) != 2 {
 		t.Errorf("Expected 2 contexts, got %d", len(contexts))
@@ -189,7 +190,7 @@ func TestHistoryProvider_ThinkingEntries(t *testing.T) {
 	store := memory.NewStore()
 	defer store.Close()
 	
-	sess := store.Create()
+	sess := store.Create(context.Background())
 	
 	// Create thinking entry manually
 	entry := session.Entry{
@@ -202,7 +203,7 @@ func TestHistoryProvider_ThinkingEntries(t *testing.T) {
 	sess.AddEntry(entry)
 	
 	provider := NewHistoryProvider(10)
-	contexts := provider.Provide(sess)
+	contexts := provider.Provide(context.Background(), sess)
 	
 	if len(contexts) != 1 {
 		t.Errorf("Expected 1 context, got %d", len(contexts))
@@ -222,7 +223,7 @@ func TestHistoryProvider_LimitFunctionality(t *testing.T) {
 	store := memory.NewStore()
 	defer store.Close()
 	
-	sess := store.Create()
+	sess := store.Create(context.Background())
 	
 	// Add multiple entries
 	for i := 0; i < 5; i++ {
@@ -232,7 +233,7 @@ func TestHistoryProvider_LimitFunctionality(t *testing.T) {
 	
 	// Test with limit
 	provider := NewHistoryProvider(3)
-	contexts := provider.Provide(sess)
+	contexts := provider.Provide(context.Background(), sess)
 	
 	if len(contexts) != 3 {
 		t.Errorf("Expected 3 contexts with limit=3, got %d", len(contexts))
@@ -248,7 +249,7 @@ func TestHistoryProvider_LimitFunctionality(t *testing.T) {
 	
 	// Test with no limit (0)
 	providerNoLimit := NewHistoryProvider(0)
-	allContexts := providerNoLimit.Provide(sess)
+	allContexts := providerNoLimit.Provide(context.Background(), sess)
 	
 	if len(allContexts) != 5 {
 		t.Errorf("Expected 5 contexts with no limit, got %d", len(allContexts))
@@ -259,7 +260,7 @@ func TestHistoryProvider_MixedEntryTypes(t *testing.T) {
 	store := memory.NewStore()
 	defer store.Close()
 	
-	sess := store.Create()
+	sess := store.Create(context.Background())
 	
 	// Add mixed entry types
 	sess.AddEntry(session.NewMessageEntry("user", "Hello"))
@@ -274,7 +275,7 @@ func TestHistoryProvider_MixedEntryTypes(t *testing.T) {
 	sess.AddEntry(session.NewMessageEntry("assistant", "Found some results"))
 	
 	provider := NewHistoryProvider(10)
-	contexts := provider.Provide(sess)
+	contexts := provider.Provide(context.Background(), sess)
 	
 	if len(contexts) != 4 {
 		t.Errorf("Expected 4 contexts, got %d", len(contexts))
@@ -293,7 +294,7 @@ func TestHistoryProvider_MetadataPreservation(t *testing.T) {
 	store := memory.NewStore()
 	defer store.Close()
 	
-	sess := store.Create()
+	sess := store.Create(context.Background())
 	
 	// Create entry with custom metadata
 	entry := session.Entry{
@@ -312,7 +313,7 @@ func TestHistoryProvider_MetadataPreservation(t *testing.T) {
 	sess.AddEntry(entry)
 	
 	provider := NewHistoryProvider(10)
-	contexts := provider.Provide(sess)
+	contexts := provider.Provide(context.Background(), sess)
 	
 	if len(contexts) != 1 {
 		t.Errorf("Expected 1 context, got %d", len(contexts))
@@ -343,7 +344,7 @@ func TestHistoryProvider_FallbackForUnknownTypes(t *testing.T) {
 	store := memory.NewStore()
 	defer store.Close()
 	
-	sess := store.Create()
+	sess := store.Create(context.Background())
 	
 	// Create entry with unknown type
 	entry := session.Entry{
@@ -356,7 +357,7 @@ func TestHistoryProvider_FallbackForUnknownTypes(t *testing.T) {
 	sess.AddEntry(entry)
 	
 	provider := NewHistoryProvider(10)
-	contexts := provider.Provide(sess)
+	contexts := provider.Provide(context.Background(), sess)
 	
 	if len(contexts) != 1 {
 		t.Errorf("Expected 1 context, got %d", len(contexts))

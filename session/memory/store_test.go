@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -14,26 +15,26 @@ func TestStore_Create(t *testing.T) {
 	store := NewStore()
 
 	// Test creating session with default options
-	sess := store.Create()
+	sess := store.Create(context.Background())
 	if sess.ID() == "" {
 		t.Error("Expected session to have an ID")
 	}
 
 	// Test creating session with custom ID
 	customID := "custom-session-id"
-	sess2 := store.Create(session.WithID(customID))
+	sess2 := store.Create(context.Background(), session.WithID(customID))
 	if sess2.ID() != customID {
 		t.Errorf("Expected session ID to be %s, got %s", customID, sess2.ID())
 	}
 
 	// Test creating session with TTL
 	ttl := 1 * time.Hour
-	_ = store.Create(session.WithTTL(ttl))
+	_ = store.Create(context.Background(), session.WithTTL(ttl))
 	// Note: ExpiresAt() has been removed from the interface
 	// TTL is now handled internally
 
 	// Test creating session with metadata
-	_ = store.Create(session.WithMetadata("user_id", "123"))
+	_ = store.Create(context.Background(), session.WithMetadata("user_id", "123"))
 	// Note: metadata is not directly accessible through Session interface
 	// This would need additional methods or inspection through the store
 }
@@ -42,14 +43,14 @@ func TestStore_GetAndSave(t *testing.T) {
 	store := NewStore()
 
 	// Test getting non-existent session
-	_, err := store.Get("non-existent")
+	_, err := store.Get(context.Background(), "non-existent")
 	if !errors.Is(err, session.ErrSessionNotFound) {
 		t.Errorf("Expected ErrSessionNotFound, got %v", err)
 	}
 
 	// Test creating and getting session
-	sess := store.Create(session.WithID("test-session"))
-	retrieved, err := store.Get("test-session")
+	sess := store.Create(context.Background(), session.WithID("test-session"))
+	retrieved, err := store.Get(context.Background(), "test-session")
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
@@ -58,7 +59,7 @@ func TestStore_GetAndSave(t *testing.T) {
 	}
 
 	// Test save (should be no-op for memory store)
-	err = store.Save(sess)
+	err = store.Save(context.Background(), sess)
 	if err != nil {
 		t.Errorf("Expected no error from Save, got %v", err)
 	}
@@ -68,14 +69,14 @@ func TestStore_Delete(t *testing.T) {
 	store := NewStore()
 
 	// Create and delete session
-	sess := store.Create(session.WithID("delete-test"))
-	err := store.Delete(sess.ID())
+	sess := store.Create(context.Background(), session.WithID("delete-test"))
+	err := store.Delete(context.Background(), sess.ID())
 	if err != nil {
 		t.Errorf("Expected no error from Delete, got %v", err)
 	}
 
 	// Verify session is gone
-	_, err = store.Get(sess.ID())
+	_, err = store.Get(context.Background(), sess.ID())
 	if !errors.Is(err, session.ErrSessionNotFound) {
 		t.Errorf("Expected ErrSessionNotFound after deletion, got %v", err)
 	}
@@ -86,13 +87,13 @@ func TestStore_ExpiredSessions(t *testing.T) {
 
 	// Create session with very short TTL
 	shortTTL := 1 * time.Millisecond
-	sess := store.Create(session.WithID("expired-test"), session.WithTTL(shortTTL))
+	sess := store.Create(context.Background(), session.WithID("expired-test"), session.WithTTL(shortTTL))
 
 	// Wait for expiration
 	time.Sleep(10 * time.Millisecond)
 
 	// Should not be able to get expired session
-	_, err := store.Get(sess.ID())
+	_, err := store.Get(context.Background(), sess.ID())
 	if !errors.Is(err, session.ErrSessionNotFound) {
 		t.Errorf("Expected ErrSessionNotFound for expired session, got %v", err)
 	}
@@ -102,26 +103,26 @@ func TestStore_DeleteExpired(t *testing.T) {
 	store := NewStore()
 
 	// Create mix of expired and non-expired sessions
-	expiredSess := store.Create(session.WithID("expired"), session.WithTTL(1*time.Millisecond))
-	validSess := store.Create(session.WithID("valid"), session.WithTTL(1*time.Hour))
+	expiredSess := store.Create(context.Background(), session.WithID("expired"), session.WithTTL(1*time.Millisecond))
+	validSess := store.Create(context.Background(), session.WithID("valid"), session.WithTTL(1*time.Hour))
 
 	// Wait for one to expire
 	time.Sleep(10 * time.Millisecond)
 
 	// Run cleanup
-	err := store.DeleteExpired()
+	err := store.DeleteExpired(context.Background())
 	if err != nil {
 		t.Errorf("Expected no error from DeleteExpired, got %v", err)
 	}
 
 	// Expired should be gone
-	_, err = store.Get(expiredSess.ID())
+	_, err = store.Get(context.Background(), expiredSess.ID())
 	if !errors.Is(err, session.ErrSessionNotFound) {
 		t.Errorf("Expected expired session to be deleted")
 	}
 
 	// Valid should still exist
-	_, err = store.Get(validSess.ID())
+	_, err = store.Get(context.Background(), validSess.ID())
 	if err != nil {
 		t.Errorf("Expected valid session to still exist, got %v", err)
 	}
@@ -129,7 +130,7 @@ func TestStore_DeleteExpired(t *testing.T) {
 
 func TestSession_StateManagement(t *testing.T) {
 	store := NewStore()
-	sess := store.Create()
+	sess := store.Create(context.Background())
 
 	// Test Set and Get
 	sess.Set("key1", "value1")
@@ -161,7 +162,7 @@ func TestSession_StateManagement(t *testing.T) {
 
 func TestSession_HistoryManagement(t *testing.T) {
 	store := NewStore()
-	sess := store.Create()
+	sess := store.Create(context.Background())
 
 	// Add entries with different timestamps
 	entry1 := session.NewMessageEntry("user", "Hello")
@@ -207,7 +208,7 @@ func TestSession_HistoryManagement(t *testing.T) {
 func TestSession_Timestamps(t *testing.T) {
 	store := NewStore()
 	createdBefore := time.Now()
-	sess := store.Create()
+	sess := store.Create(context.Background())
 	createdAfter := time.Now()
 
 	// Test CreatedAt
@@ -293,7 +294,7 @@ func TestStore_Close(t *testing.T) {
 	store := NewStore()
 	
 	// Create a session
-	sess := store.Create(session.WithID("test-close"))
+	sess := store.Create(context.Background(), session.WithID("test-close"))
 	
 	// Close the store
 	err := store.Close()
@@ -302,7 +303,7 @@ func TestStore_Close(t *testing.T) {
 	}
 	
 	// Store should still be usable after close (just no background cleanup)
-	retrieved, err := store.Get(sess.ID())
+	retrieved, err := store.Get(context.Background(), sess.ID())
 	if err != nil {
 		t.Errorf("Expected to retrieve session after Close, got %v", err)
 	}
@@ -314,7 +315,7 @@ func TestStore_Close(t *testing.T) {
 func TestConcurrency(t *testing.T) {
 	store := NewStore()
 	defer store.Close() // Clean up
-	sess := store.Create()
+	sess := store.Create(context.Background())
 
 	var wg sync.WaitGroup
 	numGoroutines := 10

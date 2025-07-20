@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -26,7 +27,7 @@ func NewStore() *Store {
 }
 
 // Create creates a new session with the given options
-func (s *Store) Create(opts ...session.CreateOption) session.Session {
+func (s *Store) Create(ctx context.Context, opts ...session.CreateOption) session.Session {
 	options := session.ApplyOptions(opts...)
 
 	id := options.ID
@@ -55,7 +56,7 @@ func (s *Store) Create(opts ...session.CreateOption) session.Session {
 }
 
 // Get retrieves a session by ID
-func (s *Store) Get(id string) (session.Session, error) {
+func (s *Store) Get(ctx context.Context, id string) (session.Session, error) {
 	value, ok := s.sessions.Load(id)
 	if !ok {
 		return nil, session.ErrSessionNotFound
@@ -73,20 +74,20 @@ func (s *Store) Get(id string) (session.Session, error) {
 }
 
 // Save saves a session (no-op for memory store as changes are immediate)
-func (s *Store) Save(sess session.Session) error {
+func (s *Store) Save(ctx context.Context, sess session.Session) error {
 	// For memory store, sessions are saved immediately when modified
 	// This method exists to satisfy the interface
 	return nil
 }
 
 // Delete removes a session by ID
-func (s *Store) Delete(id string) error {
+func (s *Store) Delete(ctx context.Context, id string) error {
 	s.sessions.Delete(id)
 	return nil
 }
 
 // DeleteExpired removes all expired sessions
-func (s *Store) DeleteExpired() error {
+func (s *Store) DeleteExpired(ctx context.Context) error {
 	var toDelete []string
 
 	s.sessions.Range(func(key, value any) bool {
@@ -115,7 +116,8 @@ func (s *Store) cleanupExpired() {
 	for {
 		select {
 		case <-ticker.C:
-			s.DeleteExpired()
+			// Use background context for cleanup
+			s.DeleteExpired(context.Background())
 		case <-s.done:
 			return
 		}

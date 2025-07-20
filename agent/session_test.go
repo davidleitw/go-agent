@@ -73,7 +73,7 @@ func TestHandleSession_LoadExisting(t *testing.T) {
 	}
 	
 	// Create an existing session
-	existingSession := store.Create()
+	existingSession := store.Create(context.Background())
 	existingSession.Set("test_key", "test_value")
 	
 	// Test loading existing session

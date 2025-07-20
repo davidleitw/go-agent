@@ -24,10 +24,10 @@ type ConfiguredEngine struct {
 	maxIterations int
 	temperature   *float32
 	maxTokens     *int
-	
+
 	// Session configuration
-	sessionTTL        time.Duration
-	cachedCreateOpts  []session.CreateOption
+	sessionTTL       time.Duration
+	cachedCreateOpts []session.CreateOption
 }
 
 // NewConfiguredEngine creates a new engine with the provided configuration
@@ -49,21 +49,21 @@ func NewConfiguredEngine(config EngineConfig) (*ConfiguredEngine, error) {
 	if config.MaxIterations == 0 {
 		config.MaxIterations = 5
 	}
-	
+
 	// Set default session TTL if not specified
 	sessionTTL := config.SessionTTL
 	if sessionTTL == 0 {
 		sessionTTL = 24 * time.Hour // Default 24 hours
 	}
-	
+
 	// Pre-compute session create options for performance
 	createOpts := []session.CreateOption{}
 	if sessionTTL > 0 {
 		createOpts = append(createOpts, session.WithTTL(sessionTTL))
 	}
-	
+
 	// Add basic metadata
-	createOpts = append(createOpts, 
+	createOpts = append(createOpts,
 		session.WithMetadata("created_by", "agent"),
 		session.WithMetadata("agent_version", "v1.0"),
 	)
@@ -133,40 +133,42 @@ func (e *ConfiguredEngine) Execute(ctx context.Context, request Request) (*Respo
 func (e *ConfiguredEngine) handleSession(ctx context.Context, request Request) (session.Session, error) {
 	if request.SessionID == "" {
 		// Create new session with pre-cached options
-		newSession := e.sessionStore.Create(e.cachedCreateOpts...)
-		
+		newSession := e.sessionStore.Create(ctx, e.cachedCreateOpts...)
+
 		// Add some dynamic metadata based on request
 		newSession.Set("initial_input_length", len(request.Input))
 		newSession.Set("session_start_time", time.Now().Format(time.RFC3339))
-		
+
 		return newSession, nil
 	}
 
 	// Load existing session
-	existingSession, err := e.sessionStore.Get(request.SessionID)
+	existingSession, err := e.sessionStore.Get(ctx, request.SessionID)
 	if err != nil {
 		return nil, ErrSessionNotFound
 	}
-	
+
 	return existingSession, nil
 }
 
 // gatherContexts collects context from all providers
 func (e *ConfiguredEngine) gatherContexts(ctx context.Context, request Request, agentSession session.Session) ([]agentcontext.Context, error) {
-	// TODO: Implement context gathering logic
-	// 1. Iterate through all context providers
-	// 2. Call each provider.Provide(session) to get contexts
-	// 3. Combine and organize contexts for LLM consumption
-	// 4. Handle provider errors gracefully
-
 	var allContexts []agentcontext.Context
 
-	// for _, provider := range e.contextProviders {
-	//     contexts := provider.Provide(agentSession)
-	//     allContexts = append(allContexts, contexts...)
-	// }
+	for _, provider := range e.contextProviders {
+		// Check for cancellation before calling provider
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
 
-	return allContexts, nil // Placeholder
+		// Call provider with context support
+		contexts := provider.Provide(ctx, agentSession)
+		allContexts = append(allContexts, contexts...)
+	}
+
+	return allContexts, nil
 }
 
 // ExecutionResult holds the final execution result
