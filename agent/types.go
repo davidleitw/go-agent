@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"time"
 
 	agentcontext "github.com/davidleitw/go-agent/context"
 	"github.com/davidleitw/go-agent/llm"
@@ -38,6 +39,9 @@ type EngineConfig struct {
 	
 	// MaxTokens for LLM responses
 	MaxTokens *int
+	
+	// SessionTTL sets the default session time-to-live
+	SessionTTL time.Duration
 }
 
 // Common errors

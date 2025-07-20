@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"time"
 
 	agentcontext "github.com/davidleitw/go-agent/context"
 	"github.com/davidleitw/go-agent/llm"
@@ -91,6 +92,12 @@ func (b *Builder) WithTemperature(temp float32) *Builder {
 // WithMaxTokens sets the maximum tokens for LLM responses
 func (b *Builder) WithMaxTokens(tokens int) *Builder {
 	b.config.MaxTokens = &tokens
+	return b
+}
+
+// WithSessionTTL sets the session time-to-live duration
+func (b *Builder) WithSessionTTL(ttl time.Duration) *Builder {
+	b.config.SessionTTL = ttl
 	return b
 }
 

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"time"
 
 	agentcontext "github.com/davidleitw/go-agent/context"
 	"github.com/davidleitw/go-agent/llm"
@@ -18,11 +19,15 @@ type ConfiguredEngine struct {
 	sessionStore     session.SessionStore
 	toolRegistry     *tool.Registry
 	contextProviders []agentcontext.Provider
-	
+
 	// Configuration
 	maxIterations int
 	temperature   *float32
 	maxTokens     *int
+	
+	// Session configuration
+	sessionTTL        time.Duration
+	cachedCreateOpts  []session.CreateOption
 }
 
 // NewConfiguredEngine creates a new engine with the provided configuration
@@ -31,20 +36,38 @@ func NewConfiguredEngine(config EngineConfig) (*ConfiguredEngine, error) {
 	if config.Model == nil {
 		return nil, fmt.Errorf("model is required")
 	}
-	
+
 	// Set defaults for optional components
 	if config.SessionStore == nil {
 		config.SessionStore = memory.NewStore()
 	}
-	
+
 	if config.ToolRegistry == nil {
 		config.ToolRegistry = tool.NewRegistry()
 	}
-	
+
 	if config.MaxIterations == 0 {
 		config.MaxIterations = 5
 	}
 	
+	// Set default session TTL if not specified
+	sessionTTL := config.SessionTTL
+	if sessionTTL == 0 {
+		sessionTTL = 24 * time.Hour // Default 24 hours
+	}
+	
+	// Pre-compute session create options for performance
+	createOpts := []session.CreateOption{}
+	if sessionTTL > 0 {
+		createOpts = append(createOpts, session.WithTTL(sessionTTL))
+	}
+	
+	// Add basic metadata
+	createOpts = append(createOpts, 
+		session.WithMetadata("created_by", "agent"),
+		session.WithMetadata("agent_version", "v1.0"),
+	)
+
 	return &ConfiguredEngine{
 		model:            config.Model,
 		sessionStore:     config.SessionStore,
@@ -53,6 +76,8 @@ func NewConfiguredEngine(config EngineConfig) (*ConfiguredEngine, error) {
 		maxIterations:    config.MaxIterations,
 		temperature:      config.Temperature,
 		maxTokens:        config.MaxTokens,
+		sessionTTL:       sessionTTL,
+		cachedCreateOpts: createOpts,
 	}, nil
 }
 
@@ -106,26 +131,24 @@ func (e *ConfiguredEngine) Execute(ctx context.Context, request Request) (*Respo
 
 // handleSession manages session creation/retrieval
 func (e *ConfiguredEngine) handleSession(ctx context.Context, request Request) (session.Session, error) {
-	// TODO: Implement session handling logic
-	// 1. If SessionID provided, try to load existing session
-	// 2. If not found or empty SessionID, create new session
-	// 3. Handle session store operations
-	
 	if request.SessionID == "" {
-		// Create new session
-		// newSession, err := e.sessionStore.Create()
-		// return newSession, err
-		return nil, nil // Placeholder
+		// Create new session with pre-cached options
+		newSession := e.sessionStore.Create(e.cachedCreateOpts...)
+		
+		// Add some dynamic metadata based on request
+		newSession.Set("initial_input_length", len(request.Input))
+		newSession.Set("session_start_time", time.Now().Format(time.RFC3339))
+		
+		return newSession, nil
+	}
+
+	// Load existing session
+	existingSession, err := e.sessionStore.Get(request.SessionID)
+	if err != nil {
+		return nil, ErrSessionNotFound
 	}
 	
-	// Load existing session
-	// existingSession, err := e.sessionStore.Get(request.SessionID)
-	// if err != nil {
-	//     return nil, ErrSessionNotFound
-	// }
-	// return existingSession, nil
-	
-	return nil, nil // Placeholder
+	return existingSession, nil
 }
 
 // gatherContexts collects context from all providers
@@ -135,14 +158,14 @@ func (e *ConfiguredEngine) gatherContexts(ctx context.Context, request Request, 
 	// 2. Call each provider.Provide(session) to get contexts
 	// 3. Combine and organize contexts for LLM consumption
 	// 4. Handle provider errors gracefully
-	
+
 	var allContexts []agentcontext.Context
-	
+
 	// for _, provider := range e.contextProviders {
 	//     contexts := provider.Provide(agentSession)
 	//     allContexts = append(allContexts, contexts...)
 	// }
-	
+
 	return allContexts, nil // Placeholder
 }
 
@@ -167,15 +190,15 @@ func (e *ConfiguredEngine) executeIterations(ctx context.Context, request Reques
 	//    e. Update usage tracking
 	// 4. Add final interaction to session history
 	// 5. Save session state
-	
+
 	maxIter := e.maxIterations
-	
+
 	// Iteration loop placeholder
 	for state.CurrentIteration < maxIter {
 		// TODO: Build LLM request from current context
 		// messages := e.buildLLMMessages(contexts, request, state)
 		// tools := e.toolRegistry.GetDefinitions()
-		
+
 		// TODO: Call LLM
 		// llmRequest := llm.Request{
 		//     Messages:    messages,
@@ -184,7 +207,7 @@ func (e *ConfiguredEngine) executeIterations(ctx context.Context, request Reques
 		//     MaxTokens:   e.maxTokens,
 		// }
 		// response, err := e.model.Complete(ctx, llmRequest)
-		
+
 		// TODO: Process LLM response
 		// if len(response.ToolCalls) > 0 {
 		//     // Execute tools and continue iteration
@@ -193,21 +216,21 @@ func (e *ConfiguredEngine) executeIterations(ctx context.Context, request Reques
 		//     state.CurrentIteration++
 		//     continue
 		// }
-		
+
 		// TODO: Handle completion
 		// if response.FinishReason == "stop" {
 		//     // Agent has completed the task
 		//     break
 		// }
-		
+
 		state.CurrentIteration++
 		break // Placeholder to prevent infinite loop
 	}
-	
+
 	if state.CurrentIteration >= maxIter {
 		return nil, ErrMaxIterationsExceeded
 	}
-	
+
 	// TODO: Return actual execution result
 	return &ExecutionResult{
 		FinalOutput: "TODO: Implement actual response", // Placeholder
@@ -224,9 +247,9 @@ func (e *ConfiguredEngine) executeTools(ctx context.Context, toolCalls []tool.Ca
 	// 2. Execute tool using registry.Execute()
 	// 3. Collect results and errors
 	// 4. Return structured tool results for adding to conversation
-	
+
 	var results []ToolResult
-	
+
 	// for _, call := range toolCalls {
 	//     result, err := e.toolRegistry.Execute(ctx, call)
 	//     results = append(results, ToolResult{
@@ -235,7 +258,7 @@ func (e *ConfiguredEngine) executeTools(ctx context.Context, toolCalls []tool.Ca
 	//         Error:  err,
 	//     })
 	// }
-	
+
 	return results // Placeholder
 }
 
@@ -246,15 +269,15 @@ func (e *ConfiguredEngine) buildLLMMessages(contexts []agentcontext.Context, req
 	// 2. Add context messages from providers (history, facts, etc.)
 	// 3. Add current user input
 	// 4. If continuing conversation, add previous LLM responses and tool results
-	
+
 	var messages []llm.Message
-	
+
 	// System message
 	messages = append(messages, llm.Message{
 		Role:    "system",
 		Content: "You are a helpful AI agent. Use the available tools when needed to help the user.",
 	})
-	
+
 	// TODO: Add context messages
 	// for _, ctx := range contexts {
 	//     messages = append(messages, llm.Message{
@@ -262,12 +285,12 @@ func (e *ConfiguredEngine) buildLLMMessages(contexts []agentcontext.Context, req
 	//         Content: ctx.Content,
 	//     })
 	// }
-	
+
 	// Current user input
 	messages = append(messages, llm.Message{
 		Role:    "user",
 		Content: request.Input,
 	})
-	
+
 	return messages
 }
