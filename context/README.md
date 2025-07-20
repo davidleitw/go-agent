@@ -1,5 +1,7 @@
 # Context Module
 
+[![English](https://img.shields.io/badge/README-English-blue.svg)](README.md) [![繁體中文](https://img.shields.io/badge/README-繁體中文-red.svg)](README-zh.md)
+
 The Context module provides a unified data structure and provider system for managing different types of information that need to be passed to LLMs in the Go Agent Framework. It acts as a bridge between various data sources (sessions, prompts, tools) and the final prompt construction.
 
 ## Features

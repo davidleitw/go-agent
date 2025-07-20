@@ -1,5 +1,7 @@
 # Session Module
 
+[![English](https://img.shields.io/badge/README-English-blue.svg)](README.md) [![繁體中文](https://img.shields.io/badge/README-繁體中文-red.svg)](README-zh.md)
+
 The Session module provides conversation state and history management for the Go Agent Framework. It's designed to be simple yet complete, supporting in-memory storage with extensible interfaces for future implementations.
 
 ## Features

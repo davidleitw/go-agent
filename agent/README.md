@@ -1,5 +1,7 @@
 # Agent Module
 
+[![English](https://img.shields.io/badge/README-English-blue.svg)](README.md) [![繁體中文](https://img.shields.io/badge/README-繁體中文-red.svg)](README-zh.md)
+
 The Agent module provides the main interface for creating and using AI agents in the Go Agent Framework. It coordinates between LLM models, tools, session management, and context providers to create powerful, stateful AI interactions.
 
 ## Features

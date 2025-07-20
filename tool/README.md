@@ -1,5 +1,7 @@
 # Tool Module
 
+[![English](https://img.shields.io/badge/README-English-blue.svg)](README.md) [![繁體中文](https://img.shields.io/badge/README-繁體中文-red.svg)](README-zh.md)
+
 The Tool module provides a framework for defining and executing tools that can be used by language models in the Go Agent Framework.
 
 ## Features

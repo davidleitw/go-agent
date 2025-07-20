@@ -1,5 +1,7 @@
 # LLM Module
 
+[![English](https://img.shields.io/badge/README-English-blue.svg)](README.md) [![繁體中文](https://img.shields.io/badge/README-繁體中文-red.svg)](README-zh.md)
+
 The LLM module provides a unified interface for interacting with language models, with initial support for OpenAI's API.
 
 ## Features
