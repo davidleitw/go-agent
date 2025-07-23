@@ -68,7 +68,7 @@ func (p *HistoryProvider) Provide(ctx context.Context, s session.Session) []Cont
 
 		case session.EntryTypeToolCall:
 			if content, ok := session.GetToolCallContent(entry); ok {
-				contextEntry.Type = "tool_call"
+				contextEntry.Type = TypeToolCall
 				params, _ := json.Marshal(content.Parameters)
 				contextEntry.Content = fmt.Sprintf("Tool: %s\nParameters: %s", content.Tool, string(params))
 				contextEntry.Metadata["tool_name"] = content.Tool
@@ -76,7 +76,7 @@ func (p *HistoryProvider) Provide(ctx context.Context, s session.Session) []Cont
 
 		case session.EntryTypeToolResult:
 			if content, ok := session.GetToolResultContent(entry); ok {
-				contextEntry.Type = "tool_result"
+				contextEntry.Type = TypeToolResult
 				if content.Success {
 					result, _ := json.Marshal(content.Result)
 					contextEntry.Content = fmt.Sprintf("Tool: %s\nSuccess: true\nResult: %s", content.Tool, string(result))

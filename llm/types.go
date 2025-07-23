@@ -26,8 +26,9 @@ type Message struct {
 	Content string `json:"content"`
 
 	// For tool-related messages
-	Name       string `json:"name,omitempty"`         // tool name
-	ToolCallID string `json:"tool_call_id,omitempty"` // for tool responses
+	Name       string      `json:"name,omitempty"`         // tool name
+	ToolCallID string      `json:"tool_call_id,omitempty"` // for tool responses
+	ToolCalls  []tool.Call `json:"tool_calls,omitempty"`   // for assistant messages with tool calls
 }
 
 // Response represents model completion response
