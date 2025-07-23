@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -12,8 +13,12 @@ import (
 	"github.com/davidleitw/go-agent/tool"
 )
 
-// ConfiguredEngine implements the Engine interface with pre-configured components
-type ConfiguredEngine struct {
+const (
+	version = "v0.0.1"
+)
+
+// engine implements the Engine interface with pre-configured components
+type engine struct {
 	// Core components
 	model            llm.Model
 	sessionStore     session.SessionStore
@@ -25,13 +30,17 @@ type ConfiguredEngine struct {
 	temperature   *float32
 	maxTokens     *int
 
+	// History configuration
+	historyLimit       int
+	historyInterceptor HistoryInterceptor
+
 	// Session configuration
 	sessionTTL       time.Duration
 	cachedCreateOpts []session.CreateOption
 }
 
-// NewConfiguredEngine creates a new engine with the provided configuration
-func NewConfiguredEngine(config EngineConfig) (*ConfiguredEngine, error) {
+// NewEngine creates a new engine with the provided configuration
+func NewEngine(config EngineConfig) (Engine, error) {
 	// Validate required components
 	if config.Model == nil {
 		return nil, fmt.Errorf("model is required")
@@ -65,46 +74,38 @@ func NewConfiguredEngine(config EngineConfig) (*ConfiguredEngine, error) {
 	// Add basic metadata
 	createOpts = append(createOpts,
 		session.WithMetadata("created_by", "agent"),
-		session.WithMetadata("agent_version", "v1.0"),
+		session.WithMetadata("agent_version", version),
 	)
 
-	return &ConfiguredEngine{
-		model:            config.Model,
-		sessionStore:     config.SessionStore,
-		toolRegistry:     config.ToolRegistry,
-		contextProviders: config.ContextProviders,
-		maxIterations:    config.MaxIterations,
-		temperature:      config.Temperature,
-		maxTokens:        config.MaxTokens,
-		sessionTTL:       sessionTTL,
-		cachedCreateOpts: createOpts,
+	return &engine{
+		model:              config.Model,
+		sessionStore:       config.SessionStore,
+		toolRegistry:       config.ToolRegistry,
+		contextProviders:   config.ContextProviders,
+		maxIterations:      config.MaxIterations,
+		temperature:        config.Temperature,
+		maxTokens:          config.MaxTokens,
+		historyLimit:       config.HistoryLimit,
+		historyInterceptor: config.HistoryInterceptor,
+		sessionTTL:         sessionTTL,
+		cachedCreateOpts:   createOpts,
 	}, nil
 }
 
 // Execute implements the core agent execution logic
-func (e *ConfiguredEngine) Execute(ctx context.Context, request Request) (*Response, error) {
+func (e *engine) Execute(ctx context.Context, request Request) (*Response, error) {
 	// Validate input
 	if request.Input == "" {
 		return nil, ErrInvalidInput
 	}
 
-	// Initialize agent state
-	state := &AgentState{
-		CurrentIteration: 0,
-		SessionActive:    false,
-		TotalUsage:       Usage{},
-	}
-
 	// Step 1: Session Management
-	// TODO: Implement session lookup/creation logic
 	agentSession, err := e.handleSession(ctx, request)
 	if err != nil {
 		return nil, fmt.Errorf("session handling failed: %w", err)
 	}
-	state.SessionActive = agentSession != nil
 
 	// Step 2: Context Collection
-	// TODO: Implement context gathering from providers
 	contexts, err := e.gatherContexts(ctx, request, agentSession)
 	if err != nil {
 		return nil, fmt.Errorf("context gathering failed: %w", err)
@@ -112,7 +113,7 @@ func (e *ConfiguredEngine) Execute(ctx context.Context, request Request) (*Respo
 
 	// Step 3: Main Execution Loop
 	// TODO: Implement iterative agent thinking with tool calls
-	result, err := e.executeIterations(ctx, request, contexts, agentSession, state)
+	result, err := e.executeIterations(ctx, request, contexts, agentSession)
 	if err != nil {
 		return nil, fmt.Errorf("execution failed: %w", err)
 	}
@@ -123,14 +124,14 @@ func (e *ConfiguredEngine) Execute(ctx context.Context, request Request) (*Respo
 		SessionID: result.SessionID,
 		Session:   result.Session,
 		Metadata:  result.Metadata,
-		Usage:     state.TotalUsage,
+		Usage:     result.Usage,
 	}
 
 	return response, nil
 }
 
 // handleSession manages session creation/retrieval
-func (e *ConfiguredEngine) handleSession(ctx context.Context, request Request) (session.Session, error) {
+func (e *engine) handleSession(ctx context.Context, request Request) (session.Session, error) {
 	if request.SessionID == "" {
 		// Create new session with pre-cached options
 		newSession := e.sessionStore.Create(ctx, e.cachedCreateOpts...)
@@ -151,10 +152,11 @@ func (e *ConfiguredEngine) handleSession(ctx context.Context, request Request) (
 	return existingSession, nil
 }
 
-// gatherContexts collects context from all providers
-func (e *ConfiguredEngine) gatherContexts(ctx context.Context, request Request, agentSession session.Session) ([]agentcontext.Context, error) {
+// gatherContexts collects context from all providers and history
+func (e *engine) gatherContexts(ctx context.Context, request Request, agentSession session.Session) ([]agentcontext.Context, error) {
 	var allContexts []agentcontext.Context
 
+	// 1. Collect contexts from providers (non-history)
 	for _, provider := range e.contextProviders {
 		// Check for cancellation before calling provider
 		select {
@@ -168,7 +170,95 @@ func (e *ConfiguredEngine) gatherContexts(ctx context.Context, request Request, 
 		allContexts = append(allContexts, contexts...)
 	}
 
+	// 2. Add history contexts if enabled
+	if e.historyLimit > 0 {
+		historyContexts, err := e.extractHistoryContexts(ctx, agentSession)
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract history contexts: %w", err)
+		}
+		allContexts = append(allContexts, historyContexts...)
+	}
+
 	return allContexts, nil
+}
+
+// extractHistoryContexts extracts and processes history from session
+func (e *engine) extractHistoryContexts(ctx context.Context, agentSession session.Session) ([]agentcontext.Context, error) {
+	// 1. Get raw history entries from session
+	entries := agentSession.GetHistory(e.historyLimit)
+	if len(entries) == 0 {
+		return nil, nil
+	}
+
+	// 2. Apply history interceptor if configured
+	if e.historyInterceptor != nil {
+		processedEntries, err := e.historyInterceptor.ProcessHistory(ctx, entries, e.model)
+		if err != nil {
+			return nil, fmt.Errorf("history interceptor failed: %w", err)
+		}
+		entries = processedEntries
+	}
+
+	// 3. Convert entries to contexts
+	contexts := e.convertEntriesToContexts(entries)
+
+	return contexts, nil
+}
+
+// convertEntriesToContexts converts session entries to context objects
+func (e *engine) convertEntriesToContexts(entries []session.Entry) []agentcontext.Context {
+	contexts := make([]agentcontext.Context, 0, len(entries))
+
+	for _, entry := range entries {
+		contextEntry := agentcontext.Context{
+			Metadata: make(map[string]any),
+		}
+
+		// Copy entry metadata
+		for k, v := range entry.Metadata {
+			contextEntry.Metadata[k] = v
+		}
+		contextEntry.Metadata["entry_id"] = entry.ID
+		contextEntry.Metadata["timestamp"] = entry.Timestamp
+
+		// Convert based on entry type
+		switch entry.Type {
+		case session.EntryTypeMessage:
+			if content, ok := session.GetMessageContent(entry); ok {
+				contextEntry.Type = content.Role // "user", "assistant", or "system"
+				contextEntry.Content = content.Text
+			}
+
+		case session.EntryTypeToolCall:
+			if content, ok := session.GetToolCallContent(entry); ok {
+				contextEntry.Type = agentcontext.TypeToolCall
+				params, _ := json.Marshal(content.Parameters)
+				contextEntry.Content = fmt.Sprintf("Tool: %s\nParameters: %s", content.Tool, string(params))
+				contextEntry.Metadata["tool_name"] = content.Tool
+			}
+
+		case session.EntryTypeToolResult:
+			if content, ok := session.GetToolResultContent(entry); ok {
+				contextEntry.Type = agentcontext.TypeToolResult
+				if content.Success {
+					result, _ := json.Marshal(content.Result)
+					contextEntry.Content = fmt.Sprintf("Tool: %s\nSuccess: true\nResult: %s", content.Tool, string(result))
+				} else {
+					contextEntry.Content = fmt.Sprintf("Tool: %s\nSuccess: false\nError: %s", content.Tool, content.Error)
+				}
+				contextEntry.Metadata["tool_name"] = content.Tool
+				contextEntry.Metadata["success"] = content.Success
+			}
+
+		default:
+			// Skip unknown entry types
+			continue
+		}
+
+		contexts = append(contexts, contextEntry)
+	}
+
+	return contexts
 }
 
 // ExecutionResult holds the final execution result
@@ -177,122 +267,324 @@ type ExecutionResult struct {
 	SessionID   string
 	Session     session.Session
 	Metadata    map[string]any
+	Usage       Usage
 }
 
 // executeIterations runs the main agent thinking loop
-func (e *ConfiguredEngine) executeIterations(ctx context.Context, request Request, contexts []agentcontext.Context, agentSession session.Session, state *AgentState) (*ExecutionResult, error) {
-	// TODO: Implement main execution loop
-	// 1. Prepare initial LLM messages from contexts and user input
-	// 2. Set up iteration loop with max limit
-	// 3. For each iteration:
-	//    a. Call LLM with current messages + available tools
-	//    b. Handle LLM response (text, tool calls, or completion)
-	//    c. If tool calls: execute tools and add results to messages
-	//    d. If completion: break loop
-	//    e. Update usage tracking
-	// 4. Add final interaction to session history
-	// 5. Save session state
+func (e *engine) executeIterations(ctx context.Context, request Request, contexts []agentcontext.Context, agentSession session.Session) (*ExecutionResult, error) {
+	// Initialize execution state
+	var totalUsage Usage
+	var conversationMessages []llm.Message
+	var finalResponse string
 
-	maxIter := e.maxIterations
+	// Step 1: Build initial messages from contexts and user input
+	messages := e.buildLLMMessages(contexts, request)
+	conversationMessages = append(conversationMessages, messages...)
 
-	// Iteration loop placeholder
-	for state.CurrentIteration < maxIter {
-		// TODO: Build LLM request from current context
-		// messages := e.buildLLMMessages(contexts, request, state)
-		// tools := e.toolRegistry.GetDefinitions()
+	// Step 2: Main iteration loop
+	for iteration := 0; iteration < e.maxIterations; iteration++ {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
 
-		// TODO: Call LLM
-		// llmRequest := llm.Request{
-		//     Messages:    messages,
-		//     Tools:       tools,
-		//     Temperature: e.temperature,
-		//     MaxTokens:   e.maxTokens,
-		// }
-		// response, err := e.model.Complete(ctx, llmRequest)
+		// Step 2a: Get available tools
+		tools := e.toolRegistry.GetDefinitions()
 
-		// TODO: Process LLM response
-		// if len(response.ToolCalls) > 0 {
-		//     // Execute tools and continue iteration
-		//     toolResults := e.executeTools(ctx, response.ToolCalls)
-		//     // Add tool results to message history
-		//     state.CurrentIteration++
-		//     continue
-		// }
+		// Step 2b: Prepare LLM request
+		llmRequest := llm.Request{
+			Messages:    conversationMessages,
+			Tools:       tools,
+			Temperature: e.temperature,
+			MaxTokens:   e.maxTokens,
+		}
 
-		// TODO: Handle completion
-		// if response.FinishReason == "stop" {
-		//     // Agent has completed the task
-		//     break
-		// }
+		// Step 2c: Call LLM
+		response, err := e.model.Complete(ctx, llmRequest)
+		if err != nil {
+			return nil, fmt.Errorf("LLM call failed at iteration %d: %w", iteration, err)
+		}
 
-		state.CurrentIteration++
-		break // Placeholder to prevent infinite loop
+		// Step 2d: Update usage tracking
+		totalUsage.LLMTokens.PromptTokens += response.Usage.PromptTokens
+		totalUsage.LLMTokens.CompletionTokens += response.Usage.CompletionTokens
+		totalUsage.LLMTokens.TotalTokens += response.Usage.TotalTokens
+
+		// Step 2e: Process LLM response
+		if len(response.ToolCalls) > 0 {
+			// Add assistant's response that includes tool calls
+			// Note: When there are tool calls, content might be empty, but we still need the assistant message
+			assistantContent := response.Content
+			if assistantContent == "" && len(response.ToolCalls) > 0 {
+				assistantContent = " " // OpenAI API requires non-empty content
+			}
+			conversationMessages = append(conversationMessages, llm.Message{
+				Role:      "assistant",
+				Content:   assistantContent,
+				ToolCalls: response.ToolCalls, // Include tool calls in the message
+			})
+
+			// Execute tools and get results
+			toolResults := e.executeTools(ctx, response.ToolCalls)
+			totalUsage.ToolCalls += len(response.ToolCalls)
+
+			// Add tool results to conversation
+			for _, result := range toolResults {
+				toolMessage := e.formatToolResult(result)
+				conversationMessages = append(conversationMessages, toolMessage)
+			}
+
+			// Continue iteration to let LLM process tool results
+			continue
+		}
+
+		// Step 2f: Handle completion (no tool calls)
+		if response.FinishReason == "stop" || response.FinishReason == "length" {
+			// Agent has completed the task
+			finalResponse = response.Content
+
+			// Add final assistant response to conversation
+			conversationMessages = append(conversationMessages, llm.Message{
+				Role:    "assistant",
+				Content: response.Content,
+			})
+
+			break
+		}
+
+		// Handle other finish reasons
+		if response.FinishReason != "" {
+			finalResponse = response.Content
+			break
+		}
+
+		// If no clear finish reason, treat as completion
+		finalResponse = response.Content
+		conversationMessages = append(conversationMessages, llm.Message{
+			Role:    "assistant",
+			Content: response.Content,
+		})
+		break
 	}
 
-	if state.CurrentIteration >= maxIter {
+	// Check if we exceeded max iterations
+	if finalResponse == "" {
 		return nil, ErrMaxIterationsExceeded
 	}
 
-	// TODO: Return actual execution result
+	// Step 3: Save conversation to session
+	err := e.saveConversationToSession(agentSession, request.Input, finalResponse)
+	if err != nil {
+		// Log error but don't fail the entire execution
+		fmt.Printf("Warning: failed to save conversation to session: %v\n", err)
+	} else {
+		totalUsage.SessionWrites = 1
+	}
+
+	// Step 4: Return execution result
 	return &ExecutionResult{
-		FinalOutput: "TODO: Implement actual response", // Placeholder
-		SessionID:   request.SessionID,
+		FinalOutput: finalResponse,
+		SessionID:   agentSession.ID(),
 		Session:     agentSession,
-		Metadata:    make(map[string]any),
+		Usage:       totalUsage,
+		Metadata: map[string]any{
+			"total_iterations": len(conversationMessages),
+			"tools_called":     totalUsage.ToolCalls,
+			"completion_time":  time.Now(),
+		},
 	}, nil
 }
 
 // executeTools handles tool execution within an iteration
-func (e *ConfiguredEngine) executeTools(ctx context.Context, toolCalls []tool.Call) []ToolResult {
-	// TODO: Implement tool execution logic
-	// 1. Iterate through each tool call
-	// 2. Execute tool using registry.Execute()
-	// 3. Collect results and errors
-	// 4. Return structured tool results for adding to conversation
-
+func (e *engine) executeTools(ctx context.Context, toolCalls []tool.Call) []ToolResult {
 	var results []ToolResult
 
-	// for _, call := range toolCalls {
-	//     result, err := e.toolRegistry.Execute(ctx, call)
-	//     results = append(results, ToolResult{
-	//         Call:   call,
-	//         Result: result,
-	//         Error:  err,
-	//     })
-	// }
+	// Execute each tool call
+	for _, call := range toolCalls {
+		// Execute tool using registry
+		result, err := e.toolRegistry.Execute(ctx, call)
 
-	return results // Placeholder
+		// Create tool result
+		toolResult := ToolResult{
+			Call:   call,
+			Result: result,
+			Error:  err,
+		}
+
+		results = append(results, toolResult)
+	}
+
+	return results
 }
 
-// buildLLMMessages constructs the message array for LLM requests
-func (e *ConfiguredEngine) buildLLMMessages(contexts []agentcontext.Context, request Request, state *AgentState) []llm.Message {
-	// TODO: Implement message building logic
-	// 1. Start with system message from agent configuration
-	// 2. Add context messages from providers (history, facts, etc.)
-	// 3. Add current user input
-	// 4. If continuing conversation, add previous LLM responses and tool results
-
+// buildLLMMessages constructs the message array for LLM requests with hardcoded format
+func (e *engine) buildLLMMessages(contexts []agentcontext.Context, request Request) []llm.Message {
 	var messages []llm.Message
 
-	// System message
+	// Step 1: Add system message (hardcoded format)
+	systemMessage := e.buildSystemMessage(contexts)
 	messages = append(messages, llm.Message{
 		Role:    "system",
-		Content: "You are a helpful AI agent. Use the available tools when needed to help the user.",
+		Content: systemMessage,
 	})
 
-	// TODO: Add context messages
-	// for _, ctx := range contexts {
-	//     messages = append(messages, llm.Message{
-	//         Role:    ctx.Role,
-	//         Content: ctx.Content,
-	//     })
-	// }
+	// Step 2: Add conversation history from contexts
+	historyMessages := e.buildHistoryMessages(contexts)
+	messages = append(messages, historyMessages...)
 
-	// Current user input
+	// Step 3: Add current user input
 	messages = append(messages, llm.Message{
 		Role:    "user",
 		Content: request.Input,
 	})
 
 	return messages
+}
+
+// buildSystemMessage creates a hardcoded system prompt with context information
+func (e *engine) buildSystemMessage(contexts []agentcontext.Context) string {
+	systemPrompt := `You are a helpful AI agent. Follow these guidelines:
+
+1. Be concise and helpful in your responses
+2. Use available tools when needed to provide accurate information
+3. If you need to use tools, explain what you're doing
+4. Always strive to be accurate and truthful
+
+`
+
+	// Check if we have history contexts and add history notice
+	if e.hasHistoryContexts(contexts) {
+		systemPrompt += `Note on Conversation History:
+The conversation history provided may have been compressed or summarized to save space.
+Key information and context have been preserved, but some details might be condensed.
+Please use this history as reference for maintaining conversation continuity and context.
+
+`
+	}
+
+	// Add system contexts (non-history contexts)
+	var systemContexts []string
+	for _, ctx := range contexts {
+		// Skip history-type contexts as they'll be added as separate messages
+		if ctx.Type == agentcontext.TypeUser || ctx.Type == agentcontext.TypeAssistant ||
+			ctx.Type == agentcontext.TypeToolCall || ctx.Type == agentcontext.TypeToolResult {
+			continue
+		}
+
+		// Add system, task, and other contextual information
+		if ctx.Content != "" {
+			systemContexts = append(systemContexts, ctx.Content)
+		}
+	}
+
+	// Append additional context information to system prompt
+	if len(systemContexts) > 0 {
+		systemPrompt += "Additional Context:\n"
+		for i, ctxContent := range systemContexts {
+			systemPrompt += fmt.Sprintf("%d. %s\n", i+1, ctxContent)
+		}
+		systemPrompt += "\n"
+	}
+
+	systemPrompt += "Please provide helpful responses based on the above context."
+
+	return systemPrompt
+}
+
+// hasHistoryContexts checks if there are any history-related contexts
+func (e *engine) hasHistoryContexts(contexts []agentcontext.Context) bool {
+	for _, ctx := range contexts {
+		if ctx.Type == agentcontext.TypeUser || ctx.Type == agentcontext.TypeAssistant ||
+			ctx.Type == agentcontext.TypeToolCall || ctx.Type == agentcontext.TypeToolResult {
+			return true
+		}
+	}
+	return false
+}
+
+// buildHistoryMessages extracts conversation history from contexts and converts to messages
+func (e *engine) buildHistoryMessages(contexts []agentcontext.Context) []llm.Message {
+	var messages []llm.Message
+
+	for _, ctx := range contexts {
+		// Process message-type contexts (from HistoryProvider)
+		switch ctx.Type {
+		case agentcontext.TypeUser, agentcontext.TypeAssistant, agentcontext.TypeSystem:
+			// Direct message types
+			messages = append(messages, llm.Message{
+				Role:    ctx.Type,
+				Content: ctx.Content,
+			})
+
+		case agentcontext.TypeToolCall:
+			// Tool call context - convert to assistant message with tool calls
+			// Note: This is a placeholder; actual tool call handling happens elsewhere
+			messages = append(messages, llm.Message{
+				Role:    "assistant",
+				Content: " ", // OpenAI requires non-empty content
+				// ToolCalls would be populated from metadata if needed
+			})
+
+		case agentcontext.TypeToolResult:
+			// Tool result - convert to tool message
+			toolCallID := ""
+			if ctx.Metadata != nil {
+				if id, ok := ctx.Metadata["tool_call_id"].(string); ok {
+					toolCallID = id
+				}
+			}
+			messages = append(messages, llm.Message{
+				Role:       "tool",
+				Content:    ctx.Content,
+				ToolCallID: toolCallID,
+			})
+
+		default:
+			// Skip other context types (they belong in system message)
+			continue
+		}
+	}
+
+	return messages
+}
+
+// formatToolResult converts a ToolResult to an LLM message
+func (e *engine) formatToolResult(result ToolResult) llm.Message {
+	var content string
+
+	if result.Error != nil {
+		// Format error result
+		content = fmt.Sprintf("Tool '%s' execution failed: %s", result.Call.Function.Name, result.Error.Error())
+	} else {
+		// Format successful result
+		resultStr := ""
+		if result.Result != nil {
+			resultStr = fmt.Sprintf("%v", result.Result)
+		}
+		content = fmt.Sprintf("Tool '%s' executed successfully. Result: %s", result.Call.Function.Name, resultStr)
+	}
+
+	return llm.Message{
+		Role:       "tool",
+		Content:    content,
+		ToolCallID: result.Call.ID, // Link back to the tool call
+	}
+}
+
+// saveConversationToSession saves the user input and agent response to session history
+func (e *engine) saveConversationToSession(agentSession session.Session, userInput, agentResponse string) error {
+	// Add user message entry
+	userEntry := session.NewMessageEntry("user", userInput)
+	agentSession.AddEntry(userEntry)
+
+	// Add assistant response entry
+	assistantEntry := session.NewMessageEntry("assistant", agentResponse)
+	agentSession.AddEntry(assistantEntry)
+
+	// Update session metadata
+	agentSession.Set("last_interaction", time.Now().Format(time.RFC3339))
+	agentSession.Set("total_messages", len(agentSession.GetHistory(1000))) // Get large history to count all
+
+	return nil
 }
