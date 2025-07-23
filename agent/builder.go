@@ -71,9 +71,22 @@ func (b *Builder) WithContextProviders(providers ...agentcontext.Provider) *Buil
 }
 
 // WithSessionHistory adds a history provider that includes session conversation history
+// Deprecated: Use WithHistoryLimit instead for better performance and control
 func (b *Builder) WithSessionHistory(limit int) *Builder {
 	historyProvider := agentcontext.NewHistoryProvider(limit)
 	b.config.ContextProviders = append(b.config.ContextProviders, historyProvider)
+	return b
+}
+
+// WithHistoryLimit sets the number of history entries to include (0 = disabled)
+func (b *Builder) WithHistoryLimit(limit int) *Builder {
+	b.config.HistoryLimit = limit
+	return b
+}
+
+// WithHistoryInterceptor sets a custom history processor for advanced features
+func (b *Builder) WithHistoryInterceptor(interceptor HistoryInterceptor) *Builder {
+	b.config.HistoryInterceptor = interceptor
 	return b
 }
 
@@ -106,7 +119,7 @@ func (b *Builder) WithSessionTTL(ttl time.Duration) *Builder {
 // Build constructs the final agent instance
 func (b *Builder) Build() (Agent, error) {
 	// Build the configured engine
-	engine, err := NewConfiguredEngine(b.config)
+	engine, err := NewEngine(b.config)
 	if err != nil {
 		return nil, err
 	}

@@ -62,6 +62,21 @@ func (c *Client) toOpenAIRequest(req llm.Request) openai.ChatCompletionRequest {
 		if msg.ToolCallID != "" {
 			openaiReq.Messages[i].ToolCallID = msg.ToolCallID
 		}
+
+		// Handle assistant messages with tool calls
+		if len(msg.ToolCalls) > 0 {
+			openaiReq.Messages[i].ToolCalls = make([]openai.ToolCall, len(msg.ToolCalls))
+			for j, tc := range msg.ToolCalls {
+				openaiReq.Messages[i].ToolCalls[j] = openai.ToolCall{
+					ID:   tc.ID,
+					Type: "function",
+					Function: openai.FunctionCall{
+						Name:      tc.Function.Name,
+						Arguments: tc.Function.Arguments,
+					},
+				}
+			}
+		}
 	}
 
 	// Set optional parameters

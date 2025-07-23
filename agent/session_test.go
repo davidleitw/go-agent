@@ -18,7 +18,7 @@ func TestHandleSession_CreateNew(t *testing.T) {
 		SessionTTL:   time.Hour,
 	}
 	
-	engine, err := NewConfiguredEngine(config)
+	engineInterface, err := NewEngine(config)
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
@@ -26,7 +26,8 @@ func TestHandleSession_CreateNew(t *testing.T) {
 	// Test creating new session
 	request := Request{Input: "Hello"}
 	
-	sess, err := engine.handleSession(context.Background(), request)
+	concreteEngine := engineInterface.(*engine)
+	sess, err := concreteEngine.handleSession(context.Background(), request)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -67,7 +68,7 @@ func TestHandleSession_LoadExisting(t *testing.T) {
 		SessionStore: store,
 	}
 	
-	engine, err := NewConfiguredEngine(config)
+	engineInterface, err := NewEngine(config)
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
@@ -82,7 +83,8 @@ func TestHandleSession_LoadExisting(t *testing.T) {
 		SessionID: existingSession.ID(),
 	}
 	
-	sess, err := engine.handleSession(context.Background(), request)
+	concreteEngine := engineInterface.(*engine)
+	sess, err := concreteEngine.handleSession(context.Background(), request)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -115,7 +117,7 @@ func TestHandleSession_NotFound(t *testing.T) {
 		SessionStore: store,
 	}
 	
-	engine, err := NewConfiguredEngine(config)
+	engineInterface, err := NewEngine(config)
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
@@ -126,7 +128,8 @@ func TestHandleSession_NotFound(t *testing.T) {
 		SessionID: "non-existent-id",
 	}
 	
-	sess, err := engine.handleSession(context.Background(), request)
+	concreteEngine := engineInterface.(*engine)
+	sess, err := concreteEngine.handleSession(context.Background(), request)
 	if err == nil {
 		t.Error("Expected error for non-existent session")
 	}
@@ -146,15 +149,16 @@ func TestConfiguredEngine_SessionTTLDefaults(t *testing.T) {
 	// Test with no TTL specified
 	config := EngineConfig{Model: model}
 	
-	engine, err := NewConfiguredEngine(config)
+	engineInterface, err := NewEngine(config)
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
 	
 	// Verify default TTL was set
 	expectedTTL := 24 * time.Hour
-	if engine.sessionTTL != expectedTTL {
-		t.Errorf("Expected default TTL %v, got %v", expectedTTL, engine.sessionTTL)
+	engineImpl := engineInterface.(*engine)
+	if engineImpl.sessionTTL != expectedTTL {
+		t.Errorf("Expected default TTL %v, got %v", expectedTTL, engineImpl.sessionTTL)
 	}
 	
 	// Test with custom TTL
@@ -164,13 +168,14 @@ func TestConfiguredEngine_SessionTTLDefaults(t *testing.T) {
 		SessionTTL: customTTL,
 	}
 	
-	engineWithTTL, err := NewConfiguredEngine(configWithTTL)
+	engineWithTTLInterface, err := NewEngine(configWithTTL)
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
 	
-	if engineWithTTL.sessionTTL != customTTL {
-		t.Errorf("Expected custom TTL %v, got %v", customTTL, engineWithTTL.sessionTTL)
+	engineWithTTLImpl := engineWithTTLInterface.(*engine)
+	if engineWithTTLImpl.sessionTTL != customTTL {
+		t.Errorf("Expected custom TTL %v, got %v", customTTL, engineWithTTLImpl.sessionTTL)
 	}
 }
 
@@ -193,7 +198,7 @@ func TestBuilder_WithSessionTTL(t *testing.T) {
 	
 	// Verify the engine has the correct TTL
 	builtAgent := agent.(*BuiltAgent)
-	engine := builtAgent.engine.(*ConfiguredEngine)
+	engine := builtAgent.engine.(*engine)
 	
 	if engine.sessionTTL != customTTL {
 		t.Errorf("Expected TTL %v, got %v", customTTL, engine.sessionTTL)

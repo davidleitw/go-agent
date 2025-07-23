@@ -315,7 +315,7 @@ func TestRequest_Validation(t *testing.T) {
 	config := EngineConfig{
 		Model: model,
 	}
-	engine, err := NewConfiguredEngine(config)
+	engine, err := NewEngine(config)
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
