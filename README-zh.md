@@ -83,7 +83,7 @@ func main() {
                │                     │                     │
         ┌──────▼──────┐    ┌─────────▼──────┐    ┌─────────▼──────┐
         │System Prompt│    │    History     │    │    Custom      │
-        │  Provider   │    │   Provider     │    │  Providers     │
+        │  Provider   │    │   Management   │    │  Providers     │
         └─────────────┘    └────────────────┘    └────────────────┘
                                      │
                         ┌────────────▼────────────┐
@@ -124,8 +124,7 @@ func main() {
 // 系統指令
 systemProvider := context.NewSystemPromptProvider("你是一個有用的助手")
 
-// 自動對話歷史 - 將 session entries 轉換為 contexts
-historyProvider := context.NewHistoryProvider(10) // 最近 10 個條目
+// 注意：歷史記錄現在內建於 agent engine，不需要獨立的 provider
 
 // 從 session 狀態讀取的自訂 provider
 type TaskContextProvider struct{}
@@ -151,7 +150,7 @@ session.AddEntry(session.NewMessageEntry("user", "天氣如何？"))
 session.AddEntry(session.NewToolCallEntry("weather", map[string]any{"city": "Tokyo"}))
 session.AddEntry(session.NewToolResultEntry("weather", "22°C, 晴朗", nil))
 
-// 當 HistoryProvider 執行時，它會將 session entries 轉換為 contexts：
+// 當 engine 收集 contexts 時，會自動將 session entries 轉換為 contexts：
 // - Message entries → user/assistant contexts  
 // - Tool call entries → "Tool: weather\nParameters: {city: Tokyo}"
 // - Tool result entries → "Tool: weather\nSuccess: true\nResult: 22°C, 晴朗"
@@ -159,7 +158,8 @@ session.AddEntry(session.NewToolResultEntry("weather", "22°C, 晴朗", nil))
 
 agent, _ := agent.NewBuilder().
     WithLLM(model).
-    WithContextProviders(systemProvider, historyProvider, &TaskContextProvider{}).
+    WithHistoryLimit(10).  // 內建歷史記錄管理
+    WithContextProviders(systemProvider, &TaskContextProvider{}).
     Build()
 ```
 
@@ -203,7 +203,7 @@ agent, _ := agent.NewBuilder().
 │ 📋 任務 Provider（從 session 狀態）→                                 │
 │   Context："當前任務：規劃東京行程"                                  │
 │                                                                      │
-│ 📜 歷史 Provider（從 session 條目）→                                 │
+│ 📜 歷史記錄（從 session 條目）→                                     │
 │   Context："user: 我想規劃東京行程"                                  │
 │   Context："assistant: 太好了！我很樂意幫你規劃。"                    │
 │   Context："user: 我的預算是 3000 美元"                              │
@@ -236,11 +236,190 @@ agent, _ := agent.NewBuilder().
 
 精髓在於 **Context** 每次都從持久的 **Session** 狀態重新組裝，確保一致性和靈活性。
 
+### 設計有效的 Context Providers
+
+Context Providers 是我們框架靈活性的核心。它們決定了你的 agent 能存取什麼資訊，以及如何理解對話。讓我們探索不同的模式和實際場景：
+
+**1. 靜態 Context Providers**
+這些提供一致的資訊，不受 session 狀態影響：
+
+```go
+// 系統角色定義
+type RoleProvider struct {
+    role string
+}
+
+func (p *RoleProvider) Provide(ctx context.Context, s session.Session) []context.Context {
+    return []context.Context{{
+        Type: "system",
+        Content: p.role,
+        Metadata: map[string]any{"priority": "high"},
+    }}
+}
+
+// 使用範例：客服 agent
+roleProvider := &RoleProvider{
+    role: "你是一位友善的客服專員。總是要理解客戶的困擾並提供解決方案。",
+}
+```
+
+**2. 動態 Session-Based Providers**
+這些根據 session 狀態和歷史進行調整：
+
+```go
+// 用戶偏好 provider
+type UserPreferenceProvider struct {
+    userDB UserDatabase
+}
+
+func (p *UserPreferenceProvider) Provide(ctx context.Context, s session.Session) []context.Context {
+    userID, exists := s.Get("user_id")
+    if !exists {
+        return nil // 還沒有用戶 context
+    }
+    
+    prefs := p.userDB.GetPreferences(userID.(string))
+    return []context.Context{{
+        Type: "user_preferences",
+        Content: fmt.Sprintf("用戶偏好：語言=%s, 風格=%s, 專業程度=%s",
+            prefs.Language, prefs.CommunicationStyle, prefs.ExpertiseLevel),
+    }}
+}
+```
+
+**3. 條件式 Providers**
+這些根據條件提供不同的 context：
+
+```go
+// 營業時間 provider
+type BusinessHoursProvider struct {
+    timezone string
+}
+
+func (p *BusinessHoursProvider) Provide(ctx context.Context, s session.Session) []context.Context {
+    loc, _ := time.LoadLocation(p.timezone)
+    now := time.Now().In(loc)
+    hour := now.Hour()
+    
+    if hour >= 9 && hour < 17 {
+        return []context.Context{{
+            Type: "availability",
+            Content: "營業時間內。可以提供即時協助並安排電話會議。",
+        }}
+    }
+    
+    return []context.Context{{
+        Type: "availability", 
+        Content: "非營業時間。仍可協助但回電將安排在下個工作日。",
+    }}
+}
+```
+
+**4. 外部資料 Providers**
+這些從外部來源獲取即時資訊：
+
+```go
+// 旅遊 agent 的天氣 context provider
+type WeatherProvider struct {
+    weatherAPI WeatherService
+}
+
+func (p *WeatherProvider) Provide(ctx context.Context, s session.Session) []context.Context {
+    destination, exists := s.Get("travel_destination")
+    if !exists {
+        return nil
+    }
+    
+    weather := p.weatherAPI.GetCurrent(ctx, destination.(string))
+    return []context.Context{{
+        Type: "environment_data",
+        Content: fmt.Sprintf("%s 當前天氣：%s，%d°C", 
+            destination, weather.Condition, weather.Temperature),
+        Metadata: map[string]any{
+            "source": "weather_api",
+            "timestamp": time.Now(),
+        },
+    }}
+}
+```
+
+**5. 對話階段 Providers**
+這些追蹤並提供工作流程中的位置 context：
+
+```go
+// 銷售漏斗階段 provider
+type SalesFunnelProvider struct{}
+
+func (p *SalesFunnelProvider) Provide(ctx context.Context, s session.Session) []context.Context {
+    history := s.GetHistory(20)
+    
+    // 分析對話以判斷階段
+    stage := p.analyzeStage(history)
+    
+    stageGuidance := map[string]string{
+        "discovery": "專注於理解需求。問開放式問題。",
+        "qualification": "確定預算和決策流程。",
+        "proposal": "提出符合其需求的解決方案。",
+        "closing": "處理異議並引導做出決定。",
+    }
+    
+    return []context.Context{{
+        Type: "sales_guidance",
+        Content: fmt.Sprintf("當前階段：%s。%s", stage, stageGuidance[stage]),
+    }}
+}
+```
+
+**實際應用場景：**
+
+**客戶支援 Agent：**
+```go
+agent := NewBuilder().
+    WithLLM(model).
+    WithContextProviders(
+        &RoleProvider{role: "客戶支援專員"},
+        &UserPreferenceProvider{userDB: db},
+        &TicketInfoProvider{ticketSystem: tickets},
+        &BusinessHoursProvider{timezone: "Asia/Taipei"},
+        &SentimentProvider{}, // 監控對話語氣
+    ).
+    Build()
+```
+
+**技術文件助理：**
+```go
+agent := NewBuilder().
+    WithLLM(model).
+    WithContextProviders(
+        &RoleProvider{role: "技術文件專家"},
+        &CodeContextProvider{}, // 分析對話中的程式碼片段
+        &VersionProvider{docDB: docs}, // 提供版本特定資訊
+        &ExpertiseProvider{}, // 根據用戶程度調整說明
+    ).
+    Build()
+```
+
+**電商購物助理：**
+```go
+agent := NewBuilder().
+    WithLLM(model).
+    WithContextProviders(
+        &RoleProvider{role: "個人購物助理"},
+        &CartProvider{cartService: carts}, // 當前購物車內容
+        &ProductProvider{catalog: products}, // 產品推薦
+        &PriceAlertProvider{}, // 優惠和折扣
+        &OrderHistoryProvider{orderDB: orders},
+    ).
+    Build()
+```
+
+Context Providers 的強大之處在於關注點分離 - 每個 provider 專注於 context 的一個面向，讓你的系統模組化、可測試且易於擴展。你可以混合搭配 providers 來創建完美符合使用案例的 agents！
+
 ### [Agent 模組](./agent/) - 核心控制器
 這是整個框架的大腦，負責協調其他所有 modules。提供了簡單的 `Execute()` interface 和靈活的 Builder pattern 讓你能輕鬆配置各種功能。
 
-**主要特色：**
-- 簡潔的 `Agent` interface，一個方法搞定所有事情
+**Key Features：**
+- 簡潔的 `Agent` interface，一個 method 搞定所有事情
 - Builder pattern 讓配置變得很直觀
 - 自動 session management，不用擔心 state 問題
 - 內建的 convenience functions，常見用法一行搞定
@@ -248,16 +427,16 @@ agent, _ := agent.NewBuilder().
 ### [Session 模組](./session/) - 記憶管理
 負責管理對話的 state 和 history records。支援 TTL 自動過期、concurrent safety、還有完整的 JSON serialization。
 
-**主要特色：**
-- Key-Value state storage，什麼資料都能放
+**Key Features：**
+- Key-Value state storage，什麼資料類型都能放
 - 統一的 history record format，支援多種對話類型
-- 自動 TTL management，過期 sessions 會自動清理
+- 自動 TTL management，過期 sessions 會自動 cleanup
 - Thread-safe，多 goroutine 使用沒問題
 
 ### [Context 模組](./context/) - 資訊聚合
 這個模組的工作是把各種來源的資訊（history conversations、system prompts、external data 等）統一打包成 LLM 能理解的格式。
 
-**主要特色：**
+**Key Features：**
 - 統一的 `Context` data structure
 - 可擴展的 `Provider` system
 - 自動將 Session history 轉換成 contexts
@@ -266,8 +445,8 @@ agent, _ := agent.NewBuilder().
 ### [Tool 模組](./tool/) - 工具整合
 讓你的 AI agents 能夠呼叫外部功能，比如查詢資料庫、呼叫 API、執行計算等等。
 
-**主要特色：**
-- 簡單的 `Tool` interface，很容易實作自訂 tools
+**Key Features：**
+- 簡單的 `Tool` interface，很容易實作 custom tools
 - 基於 JSON Schema 的 parameter definitions
 - Thread-safe 的 tool registry
 - 完整的 error handling 機制
@@ -275,15 +454,183 @@ agent, _ := agent.NewBuilder().
 ### [LLM 模組](./llm/) - 語言模型介面
 提供統一的 language model interface，目前支援 OpenAI，未來會擴展到其他提供商。
 
-**主要特色：**
+**Key Features：**
 - 清晰的 `Model` interface
 - 內建 tool calling 支援
 - 完整的 token usage tracking
 - 支援 custom endpoints 和 proxies
 
+## History Management（歷史記錄管理）
+
+go-agent 框架提供靈活的對話歷史記錄管理，可以從簡單使用場景擴展到類似 Claude Code 等級的複雜實作。
+
+### 基本使用
+
+通過簡單的限制啟用歷史記錄追蹤：
+
+```go
+agent := agent.NewBuilder().
+    WithLLM(model).
+    WithHistoryLimit(20).  // 保留最近 20 輪對話
+    Build()
+```
+
+### 進階歷史記錄處理
+
+對於需要壓縮、過濾或自動摘要的複雜場景，可以實作 `HistoryInterceptor` 介面：
+
+```go
+type HistoryInterceptor interface {
+    ProcessHistory(ctx context.Context, entries []session.Entry, llm llm.Model) ([]session.Entry, error)
+}
+```
+
+### Claude Code 等級的實作範例
+
+以下展示如何實作類似 Claude Code 的複雜歷史記錄管理：
+
+```go
+type AdvancedHistoryCompressor struct {
+    maxTokens        int
+    recentLimit      int
+    compressionRatio float32
+}
+
+func (c *AdvancedHistoryCompressor) ProcessHistory(ctx context.Context, entries []session.Entry, llm llm.Model) ([]session.Entry, error) {
+    if len(entries) <= c.recentLimit {
+        return entries, nil
+    }
+
+    // 1. 保留最近的對話
+    recent := entries[len(entries)-c.recentLimit:]
+    older := entries[:len(entries)-c.recentLimit]
+
+    // 2. 識別重要的條目
+    important := c.filterImportant(older)
+    
+    // 3. 使用 LLM 生成壓縮摘要
+    summary, err := c.generateSummary(ctx, older, llm)
+    if err != nil {
+        return entries, nil // 錯誤時回退到原始歷史記錄
+    }
+
+    // 4. 組合：摘要 + 重要條目 + 最近對話
+    result := []session.Entry{summary}
+    result = append(result, important...)
+    result = append(result, recent...)
+    
+    return result, nil
+}
+
+func (c *AdvancedHistoryCompressor) generateSummary(ctx context.Context, entries []session.Entry, llm llm.Model) (session.Entry, error) {
+    // 建構壓縮 prompt
+    historyText := c.formatEntriesForSummary(entries)
+    
+    response, err := llm.Complete(ctx, llm.Request{
+        Messages: []llm.Message{
+            {
+                Role: "system", 
+                Content: "你是對話摘要器。保留關鍵資訊、決策和上下文。",
+            },
+            {
+                Role: "user",
+                Content: fmt.Sprintf("摘要這段對話歷史：\n\n%s", historyText),
+            },
+        },
+    })
+    
+    if err != nil {
+        return session.Entry{}, err
+    }
+    
+    // 以 system message entry 形式返回
+    return session.NewMessageEntry("system", 
+        fmt.Sprintf("[壓縮歷史記錄摘要]\n%s", response.Content)), nil
+}
+
+func (c *AdvancedHistoryCompressor) filterImportant(entries []session.Entry) []session.Entry {
+    var important []session.Entry
+    
+    for _, entry := range entries {
+        // 自訂重要性評分邏輯
+        if c.isImportant(entry) {
+            important = append(important, entry)
+        }
+    }
+    
+    return important
+}
+
+func (c *AdvancedHistoryCompressor) isImportant(entry session.Entry) bool {
+    // 重要性判斷標準範例：
+    // - 錯誤訊息
+    // - 成功的工具執行且有價值的結果
+    // - 使用者偏好或設定
+    // - 關鍵決策或確認
+    
+    if entry.Type == session.EntryTypeToolResult {
+        if content, ok := session.GetToolResultContent(entry); ok {
+            return !content.Success || c.hasValueableResult(content.Result)
+        }
+    }
+    
+    // 檢查錯誤關鍵字、偏好設定等
+    return false
+}
+
+// 使用方式
+compressor := &AdvancedHistoryCompressor{
+    maxTokens:        4000,
+    recentLimit:      10,
+    compressionRatio: 0.3,
+}
+
+agent := agent.NewBuilder().
+    WithLLM(model).
+    WithHistoryLimit(100).
+    WithHistoryInterceptor(compressor).
+    Build()
+```
+
+### 主要特色
+
+**Advanced Compression：**
+- 基於 LLM 的摘要生成
+- 基於重要性的 entry 保留
+- Token 限制管理
+- 可配置的壓縮比例
+
+**Context 感知：**
+- 在 system prompt 中自動加入歷史記錄提示
+- 維持對話連續性
+- 保留關鍵資訊
+
+**Performance 優化：**
+- 內部歷史記錄處理（無 ContextProvider 額外開銷）
+- 支援 async 處理
+- 高效的 entry 轉換
+
+**Extensible Design：**
+- 簡單的 interface 方便自訂實作
+- 完整的 LLM 處理能力
+- 與 session metadata 整合
+
+### System Prompt 整合
+
+當歷史記錄被處理時，系統會自動告知 LLM：
+
+```
+Note on Conversation History:
+The conversation history provided may have been compressed or summarized to save space.
+Key information and context have been preserved, but some details might be condensed.
+Please use this history as reference for maintaining conversation continuity and context.
+```
+
+這種設計讓您能夠建構複雜的對話 agent，在長時間互動中維持上下文的同時，有效管理 token 成本和處理效率。
+
 ## 目前開發狀態
 
-**已經可以用的功能：**
+**Ready to Use：**
 - 完整的 module interfaces 設計和實作
 - Session management 和 TTL 支援
 - Context provider system
@@ -291,13 +638,13 @@ agent, _ := agent.NewBuilder().
 - OpenAI 整合
 - 豐富的 test coverage
 
-**正在開發中：**
+**In Development：**
 - Agent 的核心 execution logic（LLM calls、tool orchestration、iterative thinking 等）
 - 更多 LLM providers 支援
 - Streaming responses 支援
-- 更多內建 tools 和範例
+- 更多內建 tools 和 examples
 
-**未來計劃：**
+**Future Plans：**
 - Redis/Database 的 Session storage
 - Async tool execution
 - 更進階的 Context management 功能
@@ -348,10 +695,8 @@ agent, _ := agent.NewBuilder().
 
 ## 授權
 
-MIT License - 想怎麼用就怎麼用，但我們不負責任何損失喔。
+MIT License
 
 ---
-
-**專案狀態：積極開發中** | **最後更新：2024**
 
 期待看到你用這個框架做出什麼有趣的東西！
