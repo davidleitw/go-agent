@@ -17,6 +17,13 @@ type Engine interface {
 	Execute(ctx context.Context, request Request) (*Response, error)
 }
 
+// HistoryInterceptor allows custom processing of conversation history
+type HistoryInterceptor interface {
+	// ProcessHistory processes session entries before they are converted to contexts
+	// It can filter, compress, summarize, or otherwise modify the history
+	ProcessHistory(ctx context.Context, entries []session.Entry, llm llm.Model) ([]session.Entry, error)
+}
+
 // EngineConfig provides configuration for engine construction
 type EngineConfig struct {
 	// Model is the LLM to use
@@ -42,6 +49,12 @@ type EngineConfig struct {
 	
 	// SessionTTL sets the default session time-to-live
 	SessionTTL time.Duration
+	
+	// History configuration
+	HistoryLimit int // Number of history entries to include (0 = disabled)
+	
+	// HistoryInterceptor for advanced history processing (optional)
+	HistoryInterceptor HistoryInterceptor
 }
 
 // Common errors
@@ -62,23 +75,6 @@ var (
 	ErrLLMCallFailed = errors.New("LLM call failed")
 )
 
-// AgentState represents the current state of agent execution
-type AgentState struct {
-	// CurrentIteration tracks how many thinking loops we've done
-	CurrentIteration int
-	
-	// SessionActive indicates if we're working with a session
-	SessionActive bool
-	
-	// LastLLMResponse contains the most recent LLM output
-	LastLLMResponse *llm.Response
-	
-	// PendingToolCalls contains tool calls waiting to be executed
-	PendingToolCalls []tool.Call
-	
-	// TotalUsage accumulates usage across iterations
-	TotalUsage Usage
-}
 
 // IterationResult represents the result of a single agent iteration
 type IterationResult struct {
