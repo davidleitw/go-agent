@@ -2,7 +2,7 @@ package tool
 
 // Definition describes a tool for the model
 type Definition struct {
-	Type     string   `json:"type"`     // always "function" for now
+	Type     string   `json:"type"` // always "function" for now
 	Function Function `json:"function"`
 }
 
@@ -15,19 +15,19 @@ type Function struct {
 
 // Parameters uses a subset of JSON Schema
 type Parameters struct {
-	Type       string              `json:"type"`       // "object"
+	Type       string              `json:"type"` // "object"
 	Properties map[string]Property `json:"properties"`
 	Required   []string            `json:"required,omitempty"`
 }
 
 // Property describes a parameter property
 type Property struct {
-	Type        string `json:"type"`        // string/number/boolean/array/object
+	Type        string `json:"type"` // string/number/boolean/array/object
 	Description string `json:"description"`
 
 	// TODO: Future JSON Schema features
 	// - Enum for valid values
-	// - Pattern for regex validation  
+	// - Pattern for regex validation
 	// - MinLength/MaxLength
 	// - Minimum/Maximum for numbers
 	// - Items for array type
