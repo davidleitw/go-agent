@@ -6,6 +6,7 @@ import (
 
 	agentcontext "github.com/davidleitw/go-agent/context"
 	"github.com/davidleitw/go-agent/llm"
+	"github.com/davidleitw/go-agent/prompt"
 	"github.com/davidleitw/go-agent/session"
 	"github.com/davidleitw/go-agent/session/memory"
 	"github.com/davidleitw/go-agent/tool"
@@ -51,7 +52,7 @@ func (b *Builder) WithTools(tools ...tool.Tool) *Builder {
 	if b.config.ToolRegistry == nil {
 		b.config.ToolRegistry = tool.NewRegistry()
 	}
-	
+
 	for _, t := range tools {
 		b.config.ToolRegistry.Register(t)
 	}
@@ -70,10 +71,39 @@ func (b *Builder) WithContextProviders(providers ...agentcontext.Provider) *Buil
 	return b
 }
 
+// WithPromptTemplate sets a custom prompt template for organizing contexts
+// Accepts: string template, prompt.Template, or prompt.Builder
+func (b *Builder) WithPromptTemplate(template interface{}) *Builder {
+	switch t := template.(type) {
+	case string:
+		b.config.PromptTemplate = prompt.Parse(t)
+	case prompt.Template:
+		b.config.PromptTemplate = t
+	case prompt.Builder:
+		b.config.PromptTemplate = t.Build()
+	default:
+		// Silently ignore invalid types - will use default template
+	}
+	return b
+}
+
 // WithSessionHistory adds a history provider that includes session conversation history
+// Deprecated: Use WithHistoryLimit instead for better performance and control
 func (b *Builder) WithSessionHistory(limit int) *Builder {
 	historyProvider := agentcontext.NewHistoryProvider(limit)
 	b.config.ContextProviders = append(b.config.ContextProviders, historyProvider)
+	return b
+}
+
+// WithHistoryLimit sets the number of history entries to include (0 = disabled)
+func (b *Builder) WithHistoryLimit(limit int) *Builder {
+	b.config.HistoryLimit = limit
+	return b
+}
+
+// WithHistoryInterceptor sets a custom history processor for advanced features
+func (b *Builder) WithHistoryInterceptor(interceptor HistoryInterceptor) *Builder {
+	b.config.HistoryInterceptor = interceptor
 	return b
 }
 
@@ -105,12 +135,17 @@ func (b *Builder) WithSessionTTL(ttl time.Duration) *Builder {
 
 // Build constructs the final agent instance
 func (b *Builder) Build() (Agent, error) {
+	// Set default prompt template if none provided
+	if b.config.PromptTemplate == nil {
+		b.config.PromptTemplate = prompt.New().DefaultFlow().Build()
+	}
+
 	// Build the configured engine
-	engine, err := NewConfiguredEngine(b.config)
+	engine, err := NewEngine(b.config)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return &BuiltAgent{
 		engine: engine,
 	}, nil
@@ -129,45 +164,41 @@ func (a *BuiltAgent) Execute(ctx context.Context, request Request) (*Response, e
 // Quick builder functions for common patterns
 
 // NewSimpleAgent creates a basic agent with just an LLM
-func NewSimpleAgent(model llm.Model) Agent {
-	agent, _ := NewBuilder().
+func NewSimpleAgent(model llm.Model) (Agent, error) {
+	return NewBuilder().
 		WithLLM(model).
 		WithMemorySessionStore().
 		Build()
-	return agent
 }
 
 // NewAgentWithTools creates an agent with LLM and tools
-func NewAgentWithTools(model llm.Model, tools ...tool.Tool) Agent {
-	agent, _ := NewBuilder().
+func NewAgentWithTools(model llm.Model, tools ...tool.Tool) (Agent, error) {
+	return NewBuilder().
 		WithLLM(model).
 		WithMemorySessionStore().
 		WithTools(tools...).
 		Build()
-	return agent
 }
 
 // NewConversationalAgent creates an agent that maintains conversation history
-func NewConversationalAgent(model llm.Model, historyLimit int) Agent {
-	agent, _ := NewBuilder().
+func NewConversationalAgent(model llm.Model, historyLimit int) (Agent, error) {
+	return NewBuilder().
 		WithLLM(model).
 		WithMemorySessionStore().
-		WithSessionHistory(historyLimit).
+		WithHistoryLimit(historyLimit).
 		Build()
-	return agent
 }
 
 // NewFullAgent creates a fully-featured agent with all capabilities
-func NewFullAgent(model llm.Model, tools []tool.Tool, historyLimit int) Agent {
+func NewFullAgent(model llm.Model, tools []tool.Tool, historyLimit int) (Agent, error) {
 	builder := NewBuilder().
 		WithLLM(model).
 		WithMemorySessionStore().
-		WithSessionHistory(historyLimit)
-	
+		WithHistoryLimit(historyLimit)
+
 	if len(tools) > 0 {
 		builder = builder.WithTools(tools...)
 	}
-	
-	agent, _ := builder.Build()
-	return agent
+
+	return builder.Build()
 }
