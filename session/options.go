@@ -41,10 +41,10 @@ func ApplyOptions(opts ...CreateOption) CreateOptions {
 	options := CreateOptions{
 		Metadata: make(map[string]string),
 	}
-	
+
 	for _, opt := range opts {
 		opt(&options)
 	}
-	
+
 	return options
 }

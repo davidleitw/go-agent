@@ -8,12 +8,12 @@ type Session interface {
 	ID() string
 	CreatedAt() time.Time
 	UpdatedAt() time.Time
-	
+
 	// State management (key-value)
 	Get(key string) (any, bool)
 	Set(key string, value any)
 	Delete(key string)
-	
+
 	// History management
 	AddEntry(entry Entry) error
 	GetHistory(limit int) []Entry

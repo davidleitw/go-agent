@@ -18,11 +18,11 @@ const (
 
 // Entry represents a unified history record structure
 type Entry struct {
-	ID        string            `json:"id"`
-	Type      EntryType         `json:"type"`
-	Timestamp time.Time         `json:"timestamp"`
-	Content   any               `json:"content"`
-	Metadata  map[string]any    `json:"metadata"`
+	ID        string         `json:"id"`
+	Type      EntryType      `json:"type"`
+	Timestamp time.Time      `json:"timestamp"`
+	Content   any            `json:"content"`
+	Metadata  map[string]any `json:"metadata"`
 }
 
 // MessageContent represents a message entry content
@@ -33,8 +33,8 @@ type MessageContent struct {
 
 // ToolCallContent represents a tool call entry content
 type ToolCallContent struct {
-	Tool       string            `json:"tool"`
-	Parameters map[string]any    `json:"parameters"`
+	Tool       string         `json:"tool"`
+	Parameters map[string]any `json:"parameters"`
 }
 
 // ToolResultContent represents a tool result entry content

@@ -22,12 +22,13 @@ type Request struct {
 
 // Message represents a conversation message
 type Message struct {
-	Role    string `json:"role"`    // system/user/assistant/tool
+	Role    string `json:"role"` // system/user/assistant/tool
 	Content string `json:"content"`
 
 	// For tool-related messages
-	Name       string `json:"name,omitempty"`         // tool name
-	ToolCallID string `json:"tool_call_id,omitempty"` // for tool responses
+	Name       string      `json:"name,omitempty"`         // tool name
+	ToolCallID string      `json:"tool_call_id,omitempty"` // for tool responses
+	ToolCalls  []tool.Call `json:"tool_calls,omitempty"`   // for assistant messages with tool calls
 }
 
 // Response represents model completion response

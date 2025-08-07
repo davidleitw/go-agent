@@ -292,16 +292,16 @@ func TestEntryHelpers(t *testing.T) {
 
 func TestStore_Close(t *testing.T) {
 	store := NewStore()
-	
+
 	// Create a session
 	sess := store.Create(context.Background(), session.WithID("test-close"))
-	
+
 	// Close the store
 	err := store.Close()
 	if err != nil {
 		t.Errorf("Expected no error from Close, got %v", err)
 	}
-	
+
 	// Store should still be usable after close (just no background cleanup)
 	retrieved, err := store.Get(context.Background(), sess.ID())
 	if err != nil {
@@ -329,7 +329,7 @@ func TestConcurrency(t *testing.T) {
 			for j := 0; j < numOperations; j++ {
 				key := fmt.Sprintf("key_%d_%d", id, j)
 				value := fmt.Sprintf("value_%d_%d", id, j)
-				
+
 				sess.Set(key, value)
 				retrievedValue, exists := sess.Get(key)
 				if exists && retrievedValue != value {
