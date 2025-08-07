@@ -9,29 +9,35 @@ import (
 
 // Chat provides a simple interface for one-off agent interactions
 func Chat(ctx context.Context, model llm.Model, input string) (string, error) {
-	agent := NewSimpleAgent(model)
-	
+	agent, err := NewSimpleAgent(model)
+	if err != nil {
+		return "", err
+	}
+
 	response, err := agent.Execute(ctx, Request{
 		Input: input,
 	})
 	if err != nil {
 		return "", err
 	}
-	
+
 	return response.Output, nil
 }
 
 // ChatWithTools provides simple interface for agent interactions with tools
 func ChatWithTools(ctx context.Context, model llm.Model, input string, tools ...tool.Tool) (string, error) {
-	agent := NewAgentWithTools(model, tools...)
-	
+	agent, err := NewAgentWithTools(model, tools...)
+	if err != nil {
+		return "", err
+	}
+
 	response, err := agent.Execute(ctx, Request{
 		Input: input,
 	})
 	if err != nil {
 		return "", err
 	}
-	
+
 	return response.Output, nil
 }
 
@@ -50,9 +56,12 @@ func NewConversation(agent Agent) *Conversation {
 }
 
 // NewConversationWithModel creates a conversation with a simple agent
-func NewConversationWithModel(model llm.Model) *Conversation {
-	agent := NewConversationalAgent(model, 10) // 10 message history limit
-	return NewConversation(agent)
+func NewConversationWithModel(model llm.Model) (*Conversation, error) {
+	agent, err := NewConversationalAgent(model, 10) // 10 message history limit
+	if err != nil {
+		return nil, err
+	}
+	return NewConversation(agent), nil
 }
 
 // Say sends a message and returns the response, maintaining conversation context
@@ -64,12 +73,12 @@ func (c *Conversation) Say(ctx context.Context, input string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	
+
 	// Update session ID if it was empty
 	if c.sessionID == "" {
 		c.sessionID = response.SessionID
 	}
-	
+
 	return response.Output, nil
 }
 
@@ -125,7 +134,7 @@ func (mt *MultiTurn) Ask(ctx context.Context, input string) (string, error) {
 		Role:    "user",
 		Content: input,
 	})
-	
+
 	// Get response from model
 	response, err := mt.model.Complete(ctx, llm.Request{
 		Messages: mt.messages,
@@ -133,13 +142,13 @@ func (mt *MultiTurn) Ask(ctx context.Context, input string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	
+
 	// Add assistant response to history
 	mt.messages = append(mt.messages, llm.Message{
 		Role:    "assistant",
 		Content: response.Content,
 	})
-	
+
 	return response.Content, nil
 }
 
