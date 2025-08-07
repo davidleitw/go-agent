@@ -1,0 +1,33 @@
+# Multi-Tool Agent Demo 測試指令
+
+# 以下是可以測試的指令，可以複製貼上到程序中：
+
+# 1. 基本對話
+Hello, what can you do?
+
+# 2. 天氣查詢
+What's the weather in Tokyo?
+
+# 3. 數學計算
+Calculate 15 + 25
+
+# 4. 更複雜的計算
+What is sqrt(16)?
+
+# 5. 時間查詢
+What time is it?
+
+# 6. 時區查詢
+Show me different timezones
+
+# 7. 檔案寫入
+Write a file with some content
+
+# 8. 多個工具組合（可以連續問）
+What's the weather in Taipei?
+Calculate 5 * 7
+What time is it in Tokyo?
+Write the results to a file
+
+# 結束程序
+quit
